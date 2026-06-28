@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="ko" data-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GuppyLM — Chat with a Fish</title>
+<title>GuppyLM — 물고기와 대화하기</title>
 <style>
   /* ── Light theme (default) ── */
   :root, [data-theme="light"] {
@@ -185,14 +185,14 @@
   <h1>GuppyLM</h1>
   <span class="tag">9M params &middot; WASM</span>
   <span class="spacer"></span>
-  <span class="status" id="status">loading...</span>
-  <button id="theme-toggle" title="Toggle dark/light mode">&#9790;</button>
+  <span class="status" id="status">불러오는 중...</span>
+  <button id="theme-toggle" title="다크/라이트 모드 전환">&#9790;</button>
 </header>
 
 <div id="badges">
   <a href="https://github.com/arman-bd/guppylm"><img src="https://img.shields.io/badge/GitHub-guppylm-181717?logo=github" alt="GitHub"/></a>
-  <a href="index.ko.html" title="한국어 페이지"><img src="https://img.shields.io/badge/🇰🇷-한국어-0891b2" alt="한국어"/></a>
-  <button id="badges-toggle">more &#9662;</button>
+  <a href="index.html" title="English page"><img src="https://img.shields.io/badge/🇬🇧-English-0891b2" alt="English"/></a>
+  <button id="badges-toggle">더보기 &#9662;</button>
   <a class="extra" href="https://huggingface.co/arman-bd/guppylm-9M"><img src="https://img.shields.io/badge/🤗_Model-guppylm--9M-orange" alt="Model"/></a>
   <a class="extra" href="https://huggingface.co/datasets/arman-bd/guppylm-60k-generic"><img src="https://img.shields.io/badge/🤗_Dataset-guppylm--60k-blue" alt="Dataset"/></a>
   <a class="extra" href="https://github.com/arman-bd/guppylm/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="License"/></a>
@@ -205,14 +205,14 @@
 <div id="loading">
   <img src="guppy.png" alt="Guppy" />
   <div class="spinner"></div>
-  <div>downloading model &amp; tokenizer...</div>
+  <div>모델 &amp; 토크나이저 내려받는 중...</div>
   <div id="load-detail" style="font-size: 12px;"></div>
 </div>
 
 <div id="samples" class="hidden">
   <img src="guppy.png" alt="Guppy" />
-  <div class="title">Chat with Guppy</div>
-  <div class="subtitle">9M parameter LLM running locally in your browser</div>
+  <div class="title">Guppy와 대화하기</div>
+  <div class="subtitle">브라우저에서 로컬로 실행되는 900만 파라미터 LLM · 영어로 말을 걸어보세요</div>
   <div class="pills">
     <button class="pill" data-msg="hi guppy">hi guppy</button>
     <button class="pill" data-msg="are you hungry">are you hungry</button>
@@ -228,9 +228,9 @@
 <div id="chat" class="hidden"></div>
 
 <div id="input-row" class="hidden">
-  <button id="hint-btn" title="What can Guppy talk about?">&#x1F4A1;</button>
-  <input type="text" id="user-input" placeholder="say something to guppy..." autocomplete="off" />
-  <button id="send-btn" onclick="send()">send</button>
+  <button id="hint-btn" title="Guppy는 어떤 주제를 알까요?">&#x1F4A1;</button>
+  <input type="text" id="user-input" placeholder="구피에게 영어로 말을 걸어보세요..." autocomplete="off" />
+  <button id="send-btn" onclick="send()">전송</button>
 </div>
 
 <div id="topics-overlay" class="hidden"></div>
@@ -271,7 +271,7 @@ document.getElementById("badges-toggle").addEventListener("click", function() {
   const extras = document.querySelectorAll("#badges .extra");
   const open = extras[0]?.classList.contains("show");
   extras.forEach(el => el.classList.toggle("show", !open));
-  this.textContent = open ? "more \u25BE" : "less \u25B4";
+  this.textContent = open ? "더보기 \u25BE" : "접기 \u25B4";
 });
 
 // ── ONNX Runtime ────────────────────────────────────────────────────
@@ -285,12 +285,12 @@ import("https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.min.mjs").t
 async function load(ort) {
   const detail = document.getElementById("load-detail");
 
-  detail.textContent = "loading tokenizer...";
+  detail.textContent = "토크나이저 불러오는 중...";
   const tokResp = await fetch(`${MODEL_BASE}/tokenizer.json`);
   const tokJson = await tokResp.json();
   tokenizer = buildTokenizer(tokJson);
 
-  detail.textContent = "loading model (~10 MB)...";
+  detail.textContent = "모델 불러오는 중 (~10 MB)...";
   const modelResp = await fetch(`${MODEL_BASE}/model.onnx`);
   const modelBuf = await modelResp.arrayBuffer();
   session = await ort.InferenceSession.create(modelBuf, {
@@ -300,7 +300,7 @@ async function load(ort) {
   document.getElementById("loading").classList.add("hidden");
   document.getElementById("samples").classList.remove("hidden");
   document.getElementById("input-row").classList.remove("hidden");
-  document.getElementById("status").textContent = "ready — running locally in your browser";
+  document.getElementById("status").textContent = "준비 완료 — 브라우저에서 로컬 실행 중";
   document.getElementById("user-input").focus();
 
   // Verify tokenizer
@@ -534,7 +534,7 @@ function addMessage(role, text) {
   body.className = "body";
   const label = document.createElement("div");
   label.className = "label";
-  label.textContent = role === "user" ? "you" : "guppy";
+  label.textContent = role === "user" ? "나" : "guppy";
   body.appendChild(label);
   body.appendChild(document.createTextNode(text));
 
@@ -549,7 +549,7 @@ function addTyping() {
   const chat = document.getElementById("chat");
   const div = document.createElement("div");
   div.className = "typing";
-  div.textContent = "\u{1F420} guppy is thinking...";
+  div.textContent = "\u{1F420} guppy가 생각하는 중...";
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
   return div;
@@ -561,26 +561,26 @@ document.getElementById("user-input").addEventListener("keydown", (e) => {
 
 // ── Topics hint popup ───────────────────────────────────────────────
 const TOPICS = [
-  ["greetings", "hi guppy"], ["food", "are you hungry"], ["temperature", "is it cold today"],
-  ["water", "how is the water"], ["bubbles", "do you like bubbles"], ["light", "is it bright"],
-  ["night", "goodnight guppy"], ["dreams", "what do you dream about"], ["jokes", "tell me a joke"],
-  ["love", "do you love me"], ["loneliness", "do you get lonely"], ["meaning of life", "what is the meaning of life"],
-  ["cats", "the cat is looking at you"], ["rain", "it is raining outside"], ["music", "do you like music"],
-  ["feelings", "are you happy"], ["swimming", "do you like swimming"], ["plants", "tell me about your plants"],
-  ["colors", "what is your favorite color"], ["memory", "do you remember me"],
-  ["glass tapping", "sorry i tapped the glass"], ["reflection", "who is that fish in the glass"],
-  ["size", "are you small"], ["scared", "are you scared"], ["bored", "are you bored"],
-  ["intelligence", "are you smart"], ["friends", "do you have friends"], ["sleep", "are you tired"],
-  ["time", "what time is it"], ["outside", "what is outside the tank"],
-  ["noise", "it is loud today"], ["visitors", "someone new is here"], ["singing", "can you sing"],
-  ["age", "how old are you"], ["name", "what is your name"], ["weather", "how is the weather"],
-  ["future", "what will you do tomorrow"], ["past", "what did you do today"],
-  ["filter", "do you hear the filter"], ["algae", "is there algae"],
-  ["snails", "are there snails in the tank"], ["health", "are you feeling ok"],
-  ["excited", "are you excited"], ["curious", "what are you curious about"],
-  ["taste", "what does the water taste like"], ["breathing", "how do you breathe"],
-  ["TV", "do you watch tv"], ["children", "do you like children"],
-  ["seasons", "what season is it"], ["fear", "what are you afraid of"],
+  ["인사", "hi guppy"], ["먹이", "are you hungry"], ["온도", "is it cold today"],
+  ["물", "how is the water"], ["거품", "do you like bubbles"], ["빛", "is it bright"],
+  ["밤", "goodnight guppy"], ["꿈", "what do you dream about"], ["농담", "tell me a joke"],
+  ["사랑", "do you love me"], ["외로움", "do you get lonely"], ["삶의 의미", "what is the meaning of life"],
+  ["고양이", "the cat is looking at you"], ["비", "it is raining outside"], ["음악", "do you like music"],
+  ["감정", "are you happy"], ["수영", "do you like swimming"], ["식물", "tell me about your plants"],
+  ["색깔", "what is your favorite color"], ["기억", "do you remember me"],
+  ["유리 두드리기", "sorry i tapped the glass"], ["반사", "who is that fish in the glass"],
+  ["크기", "are you small"], ["무서움", "are you scared"], ["지루함", "are you bored"],
+  ["지능", "are you smart"], ["친구", "do you have friends"], ["잠", "are you tired"],
+  ["시간", "what time is it"], ["바깥세상", "what is outside the tank"],
+  ["소음", "it is loud today"], ["방문객", "someone new is here"], ["노래", "can you sing"],
+  ["나이", "how old are you"], ["이름", "what is your name"], ["날씨", "how is the weather"],
+  ["미래", "what will you do tomorrow"], ["과거", "what did you do today"],
+  ["필터", "do you hear the filter"], ["이끼", "is there algae"],
+  ["달팽이", "are there snails in the tank"], ["건강", "are you feeling ok"],
+  ["신남", "are you excited"], ["호기심", "what are you curious about"],
+  ["맛", "what does the water taste like"], ["호흡", "how do you breathe"],
+  ["TV", "do you watch tv"], ["아이들", "do you like children"],
+  ["계절", "what season is it"], ["공포", "what are you afraid of"],
 ];
 
 document.getElementById("hint-btn").addEventListener("click", () => {
@@ -590,7 +590,7 @@ document.getElementById("hint-btn").addEventListener("click", () => {
 
   const box = document.createElement("div");
   box.id = "topics-box";
-  box.innerHTML = "<h3>&#x1F420; Guppy knows 60 topics — click one to ask</h3>";
+  box.innerHTML = "<h3>&#x1F420; Guppy는 60개 주제를 알아요 — 클릭해서 물어보세요</h3>";
 
   const grid = document.createElement("div");
   grid.className = "topics";
@@ -609,7 +609,7 @@ document.getElementById("hint-btn").addEventListener("click", () => {
 
   const close = document.createElement("button");
   close.className = "close-btn";
-  close.textContent = "close";
+  close.textContent = "닫기";
   close.addEventListener("click", () => overlay.classList.add("hidden"));
   box.appendChild(close);
 

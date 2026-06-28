@@ -6,6 +6,8 @@
 <p align="center"><em>A ~9M parameter LLM that talks like a small fish.</em></p>
 
 <p align="center">
+  <a href="README.ko.md"><img src="https://img.shields.io/badge/🇰🇷-한국어-0891b2" alt="한국어 README"/></a>
+  <br/>
   <a href="https://huggingface.co/datasets/arman-bd/guppylm-60k-generic"><img src="https://img.shields.io/badge/🤗_Dataset-guppylm--60k-blue" alt="Dataset"/></a>&nbsp;
   <a href="https://huggingface.co/arman-bd/guppylm-9M"><img src="https://img.shields.io/badge/🤗_Model-guppylm--9M-orange" alt="Model"/></a>&nbsp;
   <a href="https://github.com/arman-bd/guppylm/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="License"/></a>
