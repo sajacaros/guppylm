@@ -90,6 +90,7 @@
 
 <nav class="toc"><div class="wrap">
   <a href="#overview">개요</a>
+  <a href="#arch">아키텍처</a>
   <a href="#moe">MoE란?</a>
   <a href="#pipeline">파이프라인</a>
   <a href="#data">① 데이터</a>
@@ -145,6 +146,454 @@
   </table>
 </section>
 
+<!-- ───────────────────────── 아키텍처 ───────────────────────── -->
+<section id="arch">
+  <h2><span class="n">⌗</span> 기본 아키텍처 — 바닐라 트랜스포머</h2>
+  <p>MoE를 이해하려면 먼저 바뀌지 않은 <b>토대</b>를 알아야 합니다. GuppyLM은 <b>디코더 전용(decoder-only)
+     트랜스포머</b>로, GPT 계열과 같은 구조입니다. 먼저 전체 골격을 한 줄로 본 뒤, 그 위에서 무엇 하나가
+     바뀌는지 짚겠습니다.</p>
+
+  <div class="callout warn"><b>"바닐라"의 의미:</b> 이 모델은 의도적으로 <b>2018년식 GPT 수준</b>으로 단순합니다.
+    <code>model.py</code> 첫 줄 설명대로 RoPE(회전 위치 인코딩)·SwiGLU(게이트 FFN)·GQA(헤드 공유)·parallel
+    residual 같은 현대 기법을 <b>모두 뺐습니다.</b> 그래서 아키텍처에서 무엇이 바뀌었는지 한눈에 추적하기
+    쉽고, 바뀌는 건 정말 <b>FFN 한 칸</b>뿐입니다.
+    <span class="mut">(이 네 기법은 <a href="#modern">아래</a>에서 간단히 비교합니다.)</span></div>
+
+  <h3>순전파(forward) 한 줄 흐름</h3>
+  <div class="flow">
+    <div class="step"><div class="s-n">in</div><div class="s-t">토큰 ID</div><div class="s-d">(B, T)<br/>정수 인덱스</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="s-n">emb</div><div class="s-t">임베딩</div><div class="s-d">토큰 + 위치<br/>(학습형)</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="s-n">×6</div><div class="s-t">블록</div><div class="s-d">어텐션 + FFN<br/>Pre-LN·잔차</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="s-n">ln</div><div class="s-t">최종 LN</div><div class="s-d">LayerNorm</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="s-n">out</div><div class="s-t">LM 헤드</div><div class="s-d">→ vocab 점수<br/>다음 토큰</div></div>
+  </div>
+
+  <h3>크기(하이퍼파라미터)</h3>
+  <table>
+    <tr><th>항목</th><th>값</th><th>의미</th></tr>
+    <tr><td><code>d_model</code></td><td>384</td><td>토큰 하나를 나타내는 벡터 차원(잔차 스트림 폭)</td></tr>
+    <tr><td><code>n_layers</code></td><td>6</td><td>블록(어텐션+FFN)을 6번 쌓음</td></tr>
+    <tr><td><code>n_heads</code></td><td>6</td><td>어텐션 헤드 6개 → 헤드당 차원 <code>384/6 = 64</code></td></tr>
+    <tr><td><code>ffn_hidden</code></td><td>768</td><td>FFN 내부 폭(= <code>2 × d_model</code>) — MoE에선 전문가 1명당 이 크기</td></tr>
+    <tr><td><code>max_seq_len</code></td><td>128</td><td>위치 임베딩 길이 = 한 번에 보는 최대 토큰 수</td></tr>
+    <tr><td><code>vocab_size</code></td><td><b>8192</b></td><td>토큰 임베딩·LM 헤드의 행 수 <span class="tag chg">한국어 위해 4096→8192</span></td></tr>
+    <tr><td><code>dropout</code></td><td>0.1</td><td>정규화</td></tr>
+  </table>
+
+  <h3>블록 내부 — Pre-LN + 잔차(residual)</h3>
+  <p>블록 하나는 두 개의 <b>잔차 연결</b>로 되어 있습니다. 입력 <code>x</code>는 위쪽 "고속도로"로 그대로 흐르고,
+     아래쪽 가지에서 <b>먼저 LayerNorm을 거친 뒤</b>(=Pre-LN) 어텐션·FFN을 통과한 결과를 다시 더해줍니다.
+     <b>FFN 칸(아래 노란 박스)이 바로 MoE로 교체되는 유일한 지점</b>입니다.</p>
+
+  <div class="card">
+  <svg viewBox="0 0 900 235" width="100%" role="img" aria-label="트랜스포머 블록 내부 (Pre-LN + 잔차)">
+    <defs><marker id="ah2" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#0891b2"/></marker></defs>
+
+    <!-- residual highway -->
+    <line x1="60" y1="50" x2="820" y2="50" stroke="#0891b2" stroke-width="2" marker-end="url(#ah2)"/>
+    <text x="40" y="55" fill="#dbeafe" font-size="14" text-anchor="middle">x</text>
+    <text x="828" y="55" fill="#dbeafe" font-size="14" text-anchor="start">출력</text>
+    <text x="225" y="34" fill="#5b7385" font-size="11" text-anchor="middle">잔차(고속도로) — 그대로 더해짐</text>
+
+    <!-- add nodes -->
+    <circle cx="390" cy="50" r="14" fill="#13283a" stroke="#1d3a4f"/>
+    <text x="390" y="55" fill="#64ffda" font-size="15" text-anchor="middle">＋</text>
+    <circle cx="720" cy="50" r="14" fill="#13283a" stroke="#1d3a4f"/>
+    <text x="720" y="55" fill="#64ffda" font-size="15" text-anchor="middle">＋</text>
+
+    <!-- branch 1: attention -->
+    <path d="M110,50 L110,169 L130,169" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#ah2)"/>
+    <rect x="130" y="150" width="80" height="38" rx="8" fill="#0f2230" stroke="#1d3a4f"/>
+    <text x="170" y="174" fill="#8aa6bb" font-size="12" text-anchor="middle">LayerNorm</text>
+    <rect x="235" y="150" width="120" height="38" rx="8" fill="#0f2230" stroke="#11525a"/>
+    <text x="295" y="174" fill="#64ffda" font-size="12" text-anchor="middle">어텐션 (causal)</text>
+    <line x1="210" y1="169" x2="235" y2="169" stroke="#0891b2" stroke-width="2" marker-end="url(#ah2)"/>
+    <path d="M355,169 L390,169 L390,64" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#ah2)"/>
+
+    <!-- branch 2: ffn / moe (highlighted = changed) -->
+    <path d="M440,50 L440,169 L460,169" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#ah2)"/>
+    <rect x="460" y="150" width="80" height="38" rx="8" fill="#0f2230" stroke="#1d3a4f"/>
+    <text x="500" y="174" fill="#8aa6bb" font-size="12" text-anchor="middle">LayerNorm</text>
+    <rect x="565" y="148" width="140" height="42" rx="8" fill="#13283a" stroke="#fbbf24" stroke-width="2"/>
+    <text x="635" y="166" fill="#fbbf24" font-size="12.5" text-anchor="middle">FFN → MoE</text>
+    <text x="635" y="181" fill="#8aa6bb" font-size="10.5" text-anchor="middle">교체 지점</text>
+    <line x1="540" y1="169" x2="565" y2="169" stroke="#0891b2" stroke-width="2" marker-end="url(#ah2)"/>
+    <path d="M705,169 L720,169 L720,64" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#ah2)"/>
+  </svg>
+  </div>
+
+  <pre><span class="c"># model.py · Block.forward — 이 5줄이 트랜스포머 블록의 전부</span>
+<span class="k">def</span> forward(self, x, mask=None):
+    x = x + self.attn(self.norm1(x), mask)   <span class="c"># ① Pre-LN → 어텐션 → 잔차 더하기</span>
+    x = x + self.ffn(self.norm2(x))          <span class="c"># ② Pre-LN → FFN(또는 MoE) → 잔차 더하기</span>
+    <span class="k">return</span> x
+
+<span class="c"># Block.__init__ — 단 한 줄로 dense/MoE가 갈린다</span>
+self.ffn = MoEFFN(config) <span class="k">if</span> config.use_moe <span class="k">else</span> FFN(config)</pre>
+
+  <!-- ─── 임베딩 ─── -->
+  <h3>① 임베딩 — 토큰 ID를 벡터로, 그리고 "몇 번째 자리"를 더한다</h3>
+  <p>모델에 들어오는 건 정수 <b>토큰 ID</b>(예: <code>"안녕" → 1840</code>)뿐입니다. 신경망은 정수를 못 다루니,
+     먼저 이 ID를 <b>384차원 실수 벡터</b>로 바꿔야 합니다. 그런데 한 가지 문제가 있습니다 —
+     <b>어텐션은 순서를 모릅니다</b>(단어를 집합처럼 봄). 그래서 "이 토큰이 문장에서 몇 번째인지"를
+     알려주는 <b>위치 벡터</b>를 따로 만들어 <b>더해</b> 줍니다.</p>
+
+  <pre><span class="c"># model.py · GuppyLM — 임베딩은 두 개의 룩업표</span>
+self.tok_emb = nn.Embedding(config.vocab_size, config.d_model)   <span class="c"># 8192 × 384 : ID → 단어 벡터</span>
+self.pos_emb = nn.Embedding(config.max_seq_len, config.d_model)  <span class="c"># 128  × 384 : 자리 → 위치 벡터(학습형)</span>
+
+<span class="c"># forward — 두 벡터를 '더한다'(concat 아님). 둘 다 384차원이라 그대로 합산.</span>
+pos = torch.arange(T, device=idx.device)             <span class="c"># [0,1,2,…,T-1] 자리 번호</span>
+x = self.drop(self.tok_emb(idx) + self.pos_emb(pos)) <span class="c"># (B,T,384) — 의미 + 위치</span></pre>
+
+  <table>
+    <tr><th>구성</th><th>모양</th><th>역할</th></tr>
+    <tr><td>토큰 임베딩 <code>tok_emb</code></td><td><code>8192 × 384</code></td><td>각 어휘 ID마다 학습되는 "의미 벡터" 한 줄</td></tr>
+    <tr><td>위치 임베딩 <code>pos_emb</code></td><td><code>128 × 384</code></td><td>0~127번째 자리마다 학습되는 "위치 벡터" 한 줄</td></tr>
+    <tr><td>합치는 법</td><td>원소별 <b>덧셈</b></td><td>이어붙이기(concat)가 아니라 더함 → 차원이 안 늘어남</td></tr>
+  </table>
+
+  <div class="callout"><b>왜 "학습형(learned)" 위치 임베딩인가?</b> 사인파(sinusoidal)나 RoPE처럼 공식으로 만드는 대신,
+    위치 벡터도 <b>학습으로</b> 배웁니다. 가장 단순한 방식이지만 대가가 있습니다 — 표에 <code>max_seq_len=128</code>개
+    자리만 있으므로, <b>128토큰을 넘는 입력은 다룰 수 없습니다</b>(그래서 <code>generate</code>가
+    <code>idx[:, -128:]</code>로 잘라 넣습니다). 큰 모델이 RoPE를 쓰는 이유가 이 길이 제약 때문입니다.</div>
+
+  <h3 style="color:var(--aqua)">가중치 공유(weight tying) — 입구와 출구가 같은 표</h3>
+  <p>맨 끝의 <b>LM 헤드</b>(384차원 → vocab 점수)는 새 행렬을 쓰지 않고 <b>토큰 임베딩 행렬을 그대로 재사용</b>합니다.
+     "ID를 벡터로 바꾸는 표"와 "벡터를 ID 점수로 되돌리는 표"가 같은 가중치입니다.</p>
+  <pre><span class="c"># model.py · GuppyLM.__init__</span>
+self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+self.lm_head.weight = self.tok_emb.weight     <span class="c"># ★ 같은 행렬을 공유(tie)</span></pre>
+  <div class="callout"><b>왜 공유하나?</b> ① <code>vocab×384 ≈ 3.1M</code> 파라미터를 <b>한 번만</b> 쓰게 해 메모리를 아끼고,
+    ② "들어갈 때의 의미"와 "나올 때의 의미"를 묶어 학습을 안정화합니다. 다만 이 행렬은 <b>모델에서 가장 큰
+    단일 가중치</b>라, <code>vocab</code>을 4096→8192로 키우면 여기가 직접 커집니다(기준선 8.7M→10.3M의 주범).</div>
+
+  <!-- ─── 어텐션 ─── -->
+  <h3>② 어텐션 — 각 토큰이 "과거"를 돌아본다 (causal multi-head)</h3>
+  <p>어텐션은 토큰들이 서로 정보를 주고받는 곳입니다. 각 토큰이 <b>질문(Query)</b>을 던지고, 다른 토큰들의
+     <b>열쇠(Key)</b>와 맞춰 본 뒤, 잘 맞는 토큰의 <b>값(Value)</b>을 많이 가져옵니다. GuppyLM은 이걸
+     <b>6개 헤드</b>로 병렬 수행합니다 — 헤드마다 64차원씩 맡아 서로 다른 관계(문법·의미·반복 등)를 본다고 보면 됩니다.</p>
+
+  <h4 style="color:var(--aqua);margin:18px 0 4px">Q·K·V — 같은 토큰에서 뽑은 세 가지 역할</h4>
+  <p>Q·K·V는 <b>전부 같은 입력 <code>x</code></b>에서 만들어집니다. 토큰 벡터 하나를 서로 다른 세 개의
+     Linear(<code>W_q · W_k · W_v</code>)에 통과시켜 같은 토큰을 <b>세 관점</b>으로 바라본 것입니다.
+     코드에선 셋을 한꺼번에 뽑으려고 <code>qkv = Linear(384→1152)</code>로 합쳐 계산한 뒤 셋으로 자릅니다
+     (<code>1152 = 3 × 384</code>).</p>
+
+  <table>
+    <tr><th>이름</th><th>역할 (한 줄)</th><th>검색엔진 비유</th></tr>
+    <tr><td><b>Q</b>uery<br/><span class="mut" style="font-size:12px">질문</span></td>
+        <td>"나는 지금 <b>어떤 정보</b>를 찾고 있나" — 현재 토큰이 알고 싶은 것</td>
+        <td>검색창에 친 <b>검색어</b></td></tr>
+    <tr><td><b>K</b>ey<br/><span class="mut" style="font-size:12px">색인</span></td>
+        <td>"나는 <b>이런 정보</b>를 갖고 있다" — 각 토큰이 자신을 알리는 색인</td>
+        <td>각 문서의 <b>제목·태그</b></td></tr>
+    <tr><td><b>V</b>alue<br/><span class="mut" style="font-size:12px">내용</span></td>
+        <td>"매칭되면 <b>실제로 건넬 내용</b>" — 가져갈 정보 본체</td>
+        <td>문서의 <b>실제 본문</b></td></tr>
+  </table>
+
+  <p>작동은 두 단계입니다. <b>①</b> 현재 토큰의 <b>Q</b>를 모든 토큰의 <b>K</b>와 내적해 "얼마나 관련 있나"
+     점수를 내고 softmax로 <b>가중치</b>(합=1)로 바꿉니다. <b>②</b> 그 가중치로 각 토큰의 <b>V</b>를 섞어(가중합)
+     현재 토큰의 새 표현을 만듭니다. 한마디로 <b>"Q로 조회해, 잘 맞는 토큰의 V를 더 많이 가져온다."</b></p>
+
+  <div class="card">
+  <svg viewBox="0 0 760 225" width="100%" role="img" aria-label="Q·K·V 검색 메커니즘">
+    <defs><marker id="ahq" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#0891b2"/></marker></defs>
+    <text x="380" y="20" fill="#64ffda" font-size="12.5" text-anchor="middle">어텐션 = 검색: Q로 각 토큰의 K를 조회 → 잘 맞는 토큰의 V를 더 가져온다</text>
+    <text x="385" y="40" fill="#8aa6bb" font-size="11" text-anchor="middle">① Q·Kⱼ 점수 → softmax → 가중치 wⱼ</text>
+
+    <!-- Query -->
+    <rect x="24" y="92" width="120" height="50" rx="8" fill="#0f2230" stroke="#11525a"/>
+    <text x="84" y="113" fill="#64ffda" font-size="13" text-anchor="middle">Q · 현재 토큰</text>
+    <text x="84" y="131" fill="#8aa6bb" font-size="11" text-anchor="middle">(찾는 질문)</text>
+
+    <!-- token boxes: key + value -->
+    <g>
+      <rect x="305" y="50"  width="160" height="38" rx="8" fill="#13283a" stroke="#1d3a4f"/>
+      <text x="385" y="74"  fill="#dbeafe" font-size="12" text-anchor="middle">토큰 t₀  ·  K₀ · V₀</text>
+      <rect x="305" y="98"  width="160" height="38" rx="8" fill="#13283a" stroke="#1d3a4f"/>
+      <text x="385" y="122" fill="#dbeafe" font-size="12" text-anchor="middle">토큰 t₁  ·  K₁ · V₁</text>
+      <rect x="305" y="146" width="160" height="38" rx="8" fill="#13283a" stroke="#1d3a4f"/>
+      <text x="385" y="170" fill="#dbeafe" font-size="12" text-anchor="middle">토큰 t₂  ·  K₂ · V₂</text>
+    </g>
+
+    <!-- Q -> tokens (score) -->
+    <g stroke="#0891b2" stroke-width="2" fill="none">
+      <line x1="144" y1="113" x2="305" y2="69"  marker-end="url(#ahq)"/>
+      <line x1="144" y1="117" x2="305" y2="117" marker-end="url(#ahq)"/>
+      <line x1="144" y1="121" x2="305" y2="165" marker-end="url(#ahq)"/>
+    </g>
+
+    <!-- tokens -> sum (weighted value, thickness = weight) -->
+    <g stroke="#0891b2" fill="none">
+      <line x1="465" y1="69"  x2="600" y2="110" stroke-width="1.5" marker-end="url(#ahq)"/>
+      <line x1="465" y1="117" x2="600" y2="116" stroke-width="3"   marker-end="url(#ahq)"/>
+      <line x1="465" y1="165" x2="600" y2="122" stroke-width="5.5" marker-end="url(#ahq)"/>
+    </g>
+    <text x="520" y="205" fill="#8aa6bb" font-size="11" text-anchor="middle">② 굵을수록 더 주목(wⱼ 큼) · Σ wⱼ·Vⱼ</text>
+
+    <!-- sum -->
+    <rect x="600" y="92" width="120" height="50" rx="8" fill="#13283a" stroke="#1d3a4f"/>
+    <text x="660" y="113" fill="#dbeafe" font-size="13" text-anchor="middle">Σ wⱼ · Vⱼ</text>
+    <text x="660" y="131" fill="#8aa6bb" font-size="11" text-anchor="middle">(가중합)</text>
+    <line x1="720" y1="117" x2="748" y2="117" stroke="#0891b2" stroke-width="2" marker-end="url(#ahq)"/>
+    <text x="734" y="104" fill="#dbeafe" font-size="12" text-anchor="middle">출력</text>
+  </svg>
+  </div>
+
+  <div class="callout"><b>왜 <code>x</code>를 바로 안 쓰고 셋으로 나누나?</b> "내가 찾는 것(Q)", "내가 내세우는 색인(K)",
+    "내가 건넬 내용(V)"은 서로 다른 일입니다. 각각 <b>별도 가중치</b>로 학습해야 매칭 기준과 전달 내용을
+    독립적으로 조절할 수 있습니다. 그래서 같은 토큰 벡터라도 세 갈래로 투영합니다.</div>
+
+  <pre><span class="c"># model.py · Attention.forward — 한 토큰이 과거를 돌아보는 6단계</span>
+B, T, C = x.shape                                 <span class="c"># C = d_model = 384</span>
+qkv = self.qkv(x)                                 <span class="c"># ① Linear 384→1152, Q·K·V를 한 번에</span>
+qkv = qkv.reshape(B, T, 3, self.n_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+q, k, v = qkv[0], qkv[1], qkv[2]                  <span class="c"># ② 6개 헤드로 분할 → 각 (B, 6, T, 64)</span>
+
+attn = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)   <span class="c"># ③ 토큰쌍 점수 (B,6,T,T) ÷ √64</span>
+attn = attn.masked_fill(mask == 0, float(<span class="s">"-inf"</span>))            <span class="c"># ④ 인과 마스크: 미래 칸 = −∞</span>
+attn = self.dropout(F.softmax(attn, dim=-1))                  <span class="c"># ⑤ 행 합=1 가중치 + dropout</span>
+out = (attn @ v).transpose(1, 2).contiguous().view(B, T, C)   <span class="c"># ⑥ v 가중합 → 헤드 합치기</span>
+return self.out(out)                                          <span class="c">#    출력 Linear 384→384</span></pre>
+
+  <table>
+    <tr><th>단계</th><th>하는 일</th><th>모양 변화</th></tr>
+    <tr><td>① QKV 투영</td><td>Q·K·V를 <b>하나의</b> Linear로 한 번에 뽑음(행렬곱 3번 → 1번)</td><td><code>(B,T,384) → (B,T,1152)</code></td></tr>
+    <tr><td>② 헤드 분할</td><td>1152를 <code>3 × 6헤드 × 64</code>로 쪼개 6개 병렬 어텐션 구성</td><td>각 <code>(B,6,T,64)</code></td></tr>
+    <tr><td>③ 점수 ÷ √64</td><td><code>q·kᵀ</code>로 모든 토큰쌍 유사도, <b>√head_dim으로 스케일</b></td><td><code>(B,6,T,T)</code></td></tr>
+    <tr><td>④ 인과 마스크</td><td>미래 토큰 칸을 <code>−∞</code>로 채워 못 보게 막음</td><td>모양 유지</td></tr>
+    <tr><td>⑤ softmax+drop</td><td>각 행을 확률로(합=1) → 어디를 얼마나 볼지 결정</td><td>모양 유지</td></tr>
+    <tr><td>⑥ 값 가중합</td><td><code>·v</code>로 정보 수집 후 6헤드를 다시 384로 합쳐 출력 투영</td><td><code>(B,T,384)</code></td></tr>
+  </table>
+
+  <div class="card">
+  <svg viewBox="0 0 560 300" width="100%" role="img" aria-label="인과(causal) 어텐션 마스크">
+    <text x="270" y="22" fill="#64ffda" font-size="13" text-anchor="middle">인과 마스크 — 각 토큰은 자기 자신과 '과거'만 본다</text>
+    <!-- column headers (keys) -->
+    <text x="190" y="58" fill="#8aa6bb" font-size="12" text-anchor="middle">t₀</text>
+    <text x="230" y="58" fill="#8aa6bb" font-size="12" text-anchor="middle">t₁</text>
+    <text x="270" y="58" fill="#8aa6bb" font-size="12" text-anchor="middle">t₂</text>
+    <text x="310" y="58" fill="#8aa6bb" font-size="12" text-anchor="middle">t₃</text>
+    <text x="350" y="58" fill="#8aa6bb" font-size="12" text-anchor="middle">t₄</text>
+    <!-- row labels (queries) -->
+    <text x="158" y="91"  fill="#8aa6bb" font-size="12" text-anchor="end">t₀</text>
+    <text x="158" y="131" fill="#8aa6bb" font-size="12" text-anchor="end">t₁</text>
+    <text x="158" y="171" fill="#8aa6bb" font-size="12" text-anchor="end">t₂</text>
+    <text x="158" y="211" fill="#8aa6bb" font-size="12" text-anchor="end">t₃</text>
+    <text x="158" y="251" fill="#8aa6bb" font-size="12" text-anchor="end">t₄</text>
+    <!-- allowed (lower-triangular) green staircase -->
+    <g fill="#102a1c" stroke="#1f5132">
+      <rect x="172" y="68"  width="36"  height="36" rx="4"/>
+      <rect x="172" y="108" width="76"  height="36" rx="4"/>
+      <rect x="172" y="148" width="116" height="36" rx="4"/>
+      <rect x="172" y="188" width="156" height="36" rx="4"/>
+      <rect x="172" y="228" width="196" height="36" rx="4"/>
+    </g>
+    <!-- grid lines -->
+    <g stroke="#1d3a4f" fill="none">
+      <rect x="170" y="66" width="200" height="200"/>
+      <line x1="210" y1="66" x2="210" y2="266"/><line x1="250" y1="66" x2="250" y2="266"/>
+      <line x1="290" y1="66" x2="290" y2="266"/><line x1="330" y1="66" x2="330" y2="266"/>
+      <line x1="170" y1="106" x2="370" y2="106"/><line x1="170" y1="146" x2="370" y2="146"/>
+      <line x1="170" y1="186" x2="370" y2="186"/><line x1="170" y1="226" x2="370" y2="226"/>
+    </g>
+    <!-- masked label -->
+    <text x="300" y="116" fill="#5b7385" font-size="12" text-anchor="middle">미래 칸</text>
+    <text x="300" y="132" fill="#5b7385" font-size="12" text-anchor="middle">= −∞ (가림)</text>
+    <!-- axes -->
+    <text x="270" y="288" fill="#5b7385" font-size="11" text-anchor="middle">키(참조 대상): 과거 → 현재</text>
+    <text x="120" y="166" fill="#5b7385" font-size="11" text-anchor="middle" transform="rotate(-90 120 166)">쿼리(예측할 토큰)</text>
+  </svg>
+  </div>
+
+  <div class="callout key"><b>두 가지 핵심:</b>
+    <ul style="margin:6px 0">
+      <li><b>왜 √head_dim(=8)으로 나누나?</b> 64차원 내적은 값이 커지기 쉬운데, 그대로 softmax에 넣으면 한 칸만
+        1에 가깝고 나머지는 0이 되어 <b>기울기가 죽습니다</b>. √64로 나눠 점수 분포를 완만하게 유지합니다.</li>
+      <li><b>왜 인과(causal) 마스크?</b> 언어모델은 "다음 토큰"을 맞히는 게 일입니다. t₃을 예측할 때 t₄(정답)를
+        보면 안 되므로, 위 그림의 <b>위쪽 삼각형(미래)을 −∞</b>로 막아 softmax 후 0이 되게 합니다.
+        이 마스크가 GuppyLM을 <b>디코더(자기회귀)</b>로 만드는 결정적 장치입니다.</li>
+    </ul>
+  </div>
+  <h4 style="color:var(--aqua);margin:18px 0 4px">트랜스포머에서 Q·K·V는 어떻게 쓰이나</h4>
+  <p>원조 트랜스포머(2017, 번역용 encoder–decoder)는 <b>같은</b> Q·K·V 메커니즘을 <b>세 군데</b>에서 씁니다.
+     GuppyLM은 그중 <b>두 번째 하나만</b> 사용합니다.</p>
+  <ul>
+    <li><b>인코더 self-attention:</b> Q·K·V가 모두 입력 문장에서 나옴. 미래를 가릴 필요가 없어 <b>양방향</b>(마스크 없음).</li>
+    <li><b>디코더 masked self-attention ← GuppyLM이 쓰는 것:</b> Q·K·V가 모두 <b>생성 중인 문장</b>에서 나오되,
+        미래를 가리는 <b>인과 마스크</b>를 씌움. "self"는 셋이 <b>같은 시퀀스</b>에서 나온다는 뜻입니다.</li>
+    <li><b>인코더–디코더 cross-attention:</b> <b>Q는 디코더</b>, <b>K·V는 인코더</b>에서 가져옴 — 번역에서 출력 단어가
+        입력 문장을 참조하는 통로. GuppyLM은 디코더 전용이라 이 부분이 <b>없습니다</b>.</li>
+  </ul>
+  <p class="mut" style="font-size:13.5px">참고: 모든 헤드가 자기 K·V를 따로 갖는 <b>표준 MHA</b>입니다(GQA로 헤드를 공유하지 않음).
+     위치는 ③의 점수 계산이 아니라 임베딩에서 들어오므로 <b>RoPE도 없습니다</b>. 이 장난감 모델은 추론 시
+     KV 캐시도 안 써서 매 토큰마다 전체를 다시 계산합니다(작아서 괜찮음).</p>
+
+  <!-- ─── FFN ─── -->
+  <h3>③ FFN — 토큰별 비선형 변환 (← 바로 이 칸이 MoE로 교체됨)</h3>
+  <p>어텐션이 토큰들 <b>사이</b>를 섞었다면, FFN은 토큰 <b>하나하나</b>를 더 깊이 가공합니다.
+     384차원을 768로 넓혔다가(<code>up</code>) <b>ReLU</b>로 비선형을 준 뒤 다시 384로 좁힙니다(<code>down</code>).
+     모든 토큰이 <b>똑같은</b> MLP 하나를 통과하는 게 dense 방식입니다.</p>
+  <pre><span class="c"># model.py · FFN.forward — 게이트 없는 평범한 MLP (SwiGLU 아님)</span>
+return self.dropout(self.down(F.relu(self.up(x))))   <span class="c"># 384 →(up) 768 →ReLU→(down) 384</span></pre>
+  <p class="mut">이 "모든 토큰 = 같은 MLP"를 "토큰마다 전문가 4명 중 2명 선택"으로 바꾸는 것이 이 프로젝트의 본론입니다 →
+     <a href="#moe">MoE란?</a></p>
+
+  <!-- ─── LayerNorm ─── -->
+  <h3>④ LayerNorm — 값의 크기를 매번 다시 맞춘다</h3>
+  <p>토큰 벡터는 6개 블록을 지나며 어텐션·FFN 결과가 잔차로 <b>계속 더해집니다</b>. 그냥 두면 숫자들이
+     점점 커지거나(폭주) 작아져(소실), 학습이 불안정해지고 기울기가 망가집니다. <b>LayerNorm</b>은 이걸 막는
+     "크기 리셋" 장치입니다 — 각 토큰 벡터를 받아 그 안의 <b>384개 값을 평균 0·크기 1로 다시 맞춥니다.</b></p>
+
+  <div class="card" style="text-align:center">
+  <svg viewBox="0 0 700 230" width="100%" role="img" aria-label="LayerNorm 정규화 전후 비교">
+    <defs><marker id="ahn" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#0891b2"/></marker></defs>
+    <text x="350" y="22" fill="#64ffda" font-size="13" text-anchor="middle">한 토큰 벡터(384개 값)를 '평균 0 · 크기 1'로 다시 맞춘다</text>
+
+    <!-- zero baseline -->
+    <line x1="45" y1="150" x2="640" y2="150" stroke="#5b7385" stroke-width="1"/>
+    <text x="36" y="154" fill="#5b7385" font-size="11" text-anchor="end">0</text>
+
+    <!-- before: amber, uneven, mean != 0 -->
+    <g fill="#2a2410" stroke="#5a4514">
+      <rect x="55"  y="100" width="20" height="50"/>
+      <rect x="85"  y="150" width="20" height="18"/>
+      <rect x="115" y="62"  width="20" height="88"/>
+      <rect x="145" y="120" width="20" height="30"/>
+      <rect x="175" y="142" width="20" height="8"/>
+      <rect x="205" y="86"  width="20" height="64"/>
+      <rect x="235" y="150" width="20" height="6"/>
+    </g>
+    <line x1="50" y1="119" x2="260" y2="119" stroke="#fbbf24" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="155" y="112" fill="#fbbf24" font-size="10.5" text-anchor="middle">평균 ≠ 0 · 들쭉날쭉</text>
+    <text x="150" y="210" fill="#8aa6bb" font-size="12" text-anchor="middle">정규화 전</text>
+
+    <!-- arrow -->
+    <text x="335" y="100" fill="#64ffda" font-size="12" text-anchor="middle">LayerNorm</text>
+    <line x1="278" y1="120" x2="398" y2="120" stroke="#0891b2" stroke-width="2" marker-end="url(#ahn)"/>
+
+    <!-- after: green, centered, bounded -->
+    <g fill="#102a1c" stroke="#1f5132">
+      <rect x="420" y="134" width="20" height="16"/>
+      <rect x="450" y="150" width="20" height="22"/>
+      <rect x="480" y="116" width="20" height="34"/>
+      <rect x="510" y="146" width="20" height="4"/>
+      <rect x="540" y="150" width="20" height="14"/>
+      <rect x="570" y="124" width="20" height="26"/>
+      <rect x="600" y="150" width="20" height="10"/>
+    </g>
+    <text x="510" y="210" fill="#86efac" font-size="12" text-anchor="middle">정규화 후 — 평균 0 · 크기 일정</text>
+  </svg>
+  </div>
+
+  <div class="card" style="text-align:center">
+    <code style="font-size:15px">y = γ · ( x − μ ) / √( σ² + ε ) + β</code>
+    <div class="mut" style="font-size:12.5px;margin-top:6px">μ·σ = <b>그 토큰의 384개 값</b>으로 구한 평균·표준편차 ·
+      γ,β = 학습되는 스케일·이동(필요하면 원래 분포로 되돌릴 자유)</div>
+  </div>
+
+  <h4 style="color:var(--aqua);margin:18px 0 4px">왜 LayerNorm을 하나?</h4>
+  <ul>
+    <li><b>값 폭주·소실 방지 → 기울기 건강:</b> 깊게 쌓아도 각 층 입력의 크기가 일정해, 학습 신호(기울기)가
+        사라지거나 터지지 않습니다. 트랜스포머를 깊게 쌓을 수 있는 핵심 이유 중 하나.</li>
+    <li><b>학습 안정·가속:</b> 활성값 분포가 고정돼 학습률·초기화에 <b>덜 민감</b>해지고, 더 빨리 수렴합니다.</li>
+    <li><b>토큰마다 독립(per-token):</b> BatchNorm과 달리 <b>배치·길이와 무관</b>하게 한 토큰의 384개 값만으로
+        정규화합니다. 그래서 배치 크기가 1이든, 생성 중 토큰을 하나씩 넣든 똑같이 동작합니다(자기회귀에 적합).</li>
+    <li><b>γ·β 자유도:</b> 정규화가 오히려 손해인 경우, 망이 <code>γ,β</code>로 원하는 크기를 <b>되살릴 수</b> 있습니다.</li>
+  </ul>
+
+  <pre><span class="c"># model.py — LayerNorm은 d_model(=384) 차원에 대해 작동</span>
+self.norm1 = nn.LayerNorm(config.d_model)   <span class="c"># 어텐션 앞</span>
+self.norm2 = nn.LayerNorm(config.d_model)   <span class="c"># FFN 앞</span>
+self.norm  = nn.LayerNorm(config.d_model)   <span class="c"># 스택 끝, LM 헤드 앞</span>
+
+<span class="c"># Block.forward — 정규화는 '가지'에서, 잔차에는 정규화 안 한 원본을 더한다 (= Pre-LN)</span>
+x = x + self.attn(self.norm1(x), mask)
+x = x + self.ffn(self.norm2(x))</pre>
+
+  <div class="callout key"><b>왜 "Pre"-LN인가? (정규화를 앞에 두는 이유)</b>
+    <ul style="margin:6px 0">
+      <li><b>Post-LN(원조 트랜스포머):</b> <code>x + Attn(x)</code>를 한 <b>뒤에</b> 정규화 → 정규화가 잔차
+        "고속도로" 위에 끼어들어, 깊어질수록 위→아래 기울기 흐름이 막혀 <b>warmup 등 세심한 튜닝이 필수</b>였습니다.</li>
+      <li><b>Pre-LN(우리·현대 기본):</b> 정규화를 <b>가지 안</b>에서만 하고 잔차에는 원본을 그대로 더합니다.
+        잔차 경로가 항등(identity)에 가깝게 유지돼 기울기가 맨 위에서 맨 아래까지 <b>곧장</b> 흐릅니다 →
+        깊은 망도 안정적으로 학습. 위 <a href="#arch">블록 다이어그램</a>의 "고속도로"가 바로 이 깨끗한 잔차 경로입니다.</li>
+    </ul>
+  </div>
+
+  <!-- ─── 손실 ─── -->
+  <h3>⑤ 손실 — 다음 토큰을 맞혀라</h3>
+  <ul>
+    <li><b>Cross-Entropy:</b> 최종 LayerNorm·LM 헤드를 거친 출력 logits를 정답 토큰과 비교합니다.
+        <code>ignore_index=0</code>으로 패딩(<code>pad_id=0</code>) 자리는 손실에서 제외합니다.</li>
+    <li><b>MoE일 때만 +α:</b> 여기에 전문가 <b>부하분산 보조손실</b>이 더해집니다(dense면 0) → <a href="#train">④ 학습</a>.</li>
+  </ul>
+  <pre><span class="c"># model.py · GuppyLM.forward (끝부분)</span>
+logits = self.lm_head(self.norm(x))                  <span class="c"># 최종 LayerNorm → LM 헤드</span>
+ce_loss = F.cross_entropy(logits.view(-1, V), targets.view(-1), ignore_index=0)
+loss = ce_loss + self.config.aux_loss_coef * aux_loss <span class="c"># dense면 aux=0</span></pre>
+
+  <h3 id="modern">뺀 현대 기법 4가지 — 무엇이고, 왜 안 썼나</h3>
+  <p>아래는 요즘 LLM이 거의 다 쓰지만 GuppyLM이 <b>일부러 뺀</b> 기법들입니다. 모두 "성능·효율을 위한 개선"이라
+     이해에는 꼭 필요하지 않아, 단순함을 위해 생략했습니다. 각 기법의 한 줄 정의와 GuppyLM의 단순 버전을 비교합니다.</p>
+  <table>
+    <tr><th>현대 기법</th><th>무엇을 하나 (왜 좋나)</th><th>GuppyLM은 대신</th></tr>
+    <tr>
+      <td><b>RoPE</b><br/><span class="mut" style="font-size:12.5px">회전 위치 인코딩</span></td>
+      <td>위치를 따로 더하지 않고 Q·K 벡터를 위치 각도만큼 <b>회전</b>시켜, 어텐션 점수에 <b>상대 위치</b>가 자연히
+          반영되게 함. 학습 때 본 적 없는 더 긴 문장에도 비교적 잘 일반화됨. <span class="mut">(Llama·Mistral 표준)</span></td>
+      <td><b>학습형 절대 위치 임베딩</b>을 더함 → <code>max_seq_len=128</code> 하드캡</td>
+    </tr>
+    <tr>
+      <td><b>SwiGLU</b><br/><span class="mut" style="font-size:12.5px">게이트 FFN</span></td>
+      <td>FFN의 ReLU를 <b>게이트</b>로 교체: 두 갈래 투영 중 하나(SiLU)로 다른 하나를 곱함
+          <code>down(SiLU(W₁x) ⊙ W₃x)</code>. 같은 예산에서 표현력·성능↑. <span class="mut">(Llama·PaLM)</span></td>
+      <td><code>up → ReLU → down</code> <b>평범한 MLP</b> (게이트 없음)</td>
+    </tr>
+    <tr>
+      <td><b>GQA</b><br/><span class="mut" style="font-size:12.5px">그룹 쿼리 어텐션</span></td>
+      <td>여러 Q 헤드가 <b>K·V를 공유</b>(그룹). 추론 시 KV 캐시 메모리·대역폭을 줄여 <b>생성이 빨라짐</b>,
+          품질은 거의 유지. <span class="mut">(Llama-2 70B·Mistral)</span></td>
+      <td>6개 헤드가 <b>각자</b> K·V를 갖는 풀 MHA</td>
+    </tr>
+    <tr>
+      <td><b>Parallel residual</b><br/><span class="mut" style="font-size:12.5px">병렬 잔차</span></td>
+      <td>어텐션과 FFN을 <b>같은 입력</b>에서 병렬로 계산해 한 번에 더함 <code>x + attn(ln x) + ffn(ln x)</code>.
+          LN을 공유해 대규모 분산학습에서 통신·속도 이득. <span class="mut">(GPT-J·NeoX·PaLM)</span></td>
+      <td><b>순차</b>: 어텐션을 먼저 더한 뒤, <b>그 출력</b>에 FFN을 더함</td>
+    </tr>
+  </table>
+  <p class="mut" style="font-size:13.5px">※ 넷 다 "끄고 켜는" 개선이라, 나중에 이 토대 위에 하나씩 얹어 보며 효과를 비교하는 실험으로 확장하기 좋습니다.</p>
+
+  <h3>그래서, 아키텍처에서 바뀐 곳은?</h3>
+  <p>MoE·이중언어 전환에서 트랜스포머 <b>구조 자체</b>가 바뀐 곳은 딱 둘뿐이고, 나머지는 한 글자도 안 바뀝니다.</p>
+  <table>
+    <tr><th>구성 요소</th><th>상태</th><th>내용</th></tr>
+    <tr><td>블록 내 <code>FFN</code></td><td><span class="tag chg">교체</span></td><td><b>유일한 구조 변경.</b> dense FFN 1개 → <code>MoEFFN</code>(전문가 4 + 라우터, top-2). <code>config.use_moe</code>로 토글 → <a href="#moe">MoE란?</a></td></tr>
+    <tr><td>토큰 임베딩 / LM 헤드</td><td><span class="tag chg">크기↑</span></td><td>구조는 그대로지만 <code>vocab_size</code> 4096→8192로 <b>행 수만</b> 증가(한글 수용) → <a href="#tok">② 토크나이저</a></td></tr>
+    <tr><td>어텐션 (MHA)</td><td><span class="tag add">그대로</span></td><td>헤드 수·인과 마스크·스케일링 전부 동일</td></tr>
+    <tr><td>위치 임베딩</td><td><span class="tag add">그대로</span></td><td>학습형 위치 임베딩 유지(RoPE로 안 바꿈)</td></tr>
+    <tr><td>잔차 · Pre-LN</td><td><span class="tag add">그대로</span></td><td>블록의 2-잔차 구조, LayerNorm 위치 동일</td></tr>
+    <tr><td>가중치 공유(tie)</td><td><span class="tag add">그대로</span></td><td>LM 헤드 ↔ 토큰 임베딩 공유 유지</td></tr>
+  </table>
+
+  <div class="callout key"><b>요점:</b> 트랜스포머의 "골격"은 그대로 두고, FFN이라는 <b>한 모듈만</b> 교체했습니다.
+    그래서 같은 데이터·같은 학습 루프에서 <code>use_moe</code> 플래그 하나로 dense ↔ MoE를 정확히 비교할 수 있습니다.
+    아래 <a href="#moe">MoE란?</a> 섹션에서 그 교체된 FFN 칸 내부를 자세히 들여다봅니다.</div>
+
+  <p class="pill">관련 코드: <code>model.py</code>(<code>Attention</code>, <code>FFN</code>, <code>Block</code>, <code>GuppyLM</code>) ·
+     <code>config.py</code>(<code>GuppyConfig</code>)</p>
+</section>
+
 <!-- ───────────────────────── MoE란 ───────────────────────── -->
 <section id="moe">
   <h2><span class="n">?</span> MoE란 — 전문가 4개, top-2</h2>
@@ -156,8 +605,9 @@
   <svg viewBox="0 0 900 260" width="100%" role="img" aria-label="MoE 레이어 구조">
     <defs><marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
       <path d="M0,0 L9,4.5 L0,9 z" fill="#0891b2"/></marker></defs>
-    <rect x="20" y="110" width="90" height="40" rx="8" fill="#13283a" stroke="#1d3a4f"/>
-    <text x="65" y="135" fill="#dbeafe" font-size="14" text-anchor="middle">토큰 x</text>
+    <rect x="20" y="100" width="90" height="60" rx="8" fill="#13283a" stroke="#1d3a4f"/>
+    <text x="65" y="125" fill="#dbeafe" font-size="14" text-anchor="middle">토큰 x</text>
+    <text x="65" y="145" fill="#8aa6bb" font-size="11" text-anchor="middle">384차원 벡터</text>
     <!-- router -->
     <rect x="150" y="100" width="120" height="60" rx="8" fill="#0f2230" stroke="#11525a"/>
     <text x="210" y="125" fill="#64ffda" font-size="13" text-anchor="middle">라우터</text>
@@ -266,6 +716,32 @@
      음절당 3바이트이고, 바이트 단위 BPE는 어떤 문자든 바이트로 쪼개 학습하기 때문입니다.
      바뀌는 것은 <b>어휘 상한</b>입니다. 영어만 있을 땐 4096(실제 ~2,418)으로 충분했지만, 한국어가 들어오면
      더 많은 서브워드가 필요해 <b>8192</b>로 올립니다.</p>
+
+  <h3>BPE(Byte Pair Encoding)란?</h3>
+  <p>토크나이저는 문장을 모델이 다룰 <b>정수 ID(토큰)</b>로 쪼개는 도구입니다. 단어를 통째로 토큰으로 쓰면
+     어휘가 끝없이 커지고 처음 보는 단어를 못 다루며(OOV), 반대로 글자 하나씩 쓰면 시퀀스가 너무 길어집니다.
+     <b>BPE</b>는 그 <b>중간</b>입니다 — 말뭉치에서 <b>자주 붙어 나오는 조각 쌍을 반복해 병합</b>해
+     "흔한 덩어리"를 하나의 토큰으로 만듭니다.</p>
+
+  <pre><span class="c"># BPE 학습(개념): 글자에서 시작해 가장 빈번한 인접 쌍을 계속 합친다</span>
+l o w e r        <span class="c"># ① 처음엔 글자(바이트) 단위</span>
+l o w er         <span class="c"># ② 가장 흔한 쌍 e+r → "er" 병합</span>
+lo w er          <span class="c"># ③ 다음으로 흔한 l+o → "lo" 병합 … vocab_size 도달까지 반복</span>
+
+<span class="c"># 학습이 끝나면 — 흔한 말은 통째로, 드문 말은 잘게 (예시)</span>
+<span class="s">"the"</span>     → [<span class="s">"the"</span>]            <span class="c"># 아주 흔함 → 한 토큰</span>
+<span class="s">"lower"</span>   → [<span class="s">"low"</span>, <span class="s">"er"</span>]      <span class="c"># 익숙한 조각으로</span>
+<span class="s">"헤엄치는"</span> → [<span class="s">"헤엄"</span>, <span class="s">"치는"</span>]     <span class="c"># 드물면 더 잘게 쪼갬</span></pre>
+
+  <p><b>"ByteLevel"</b>이 붙은 이유: 글자가 아니라 UTF-8 <b>바이트</b>(0~255)에서 시작합니다. 모든 문자는
+     바이트 조합으로 표현되므로 <b>한글·이모지·특수문자 무엇이든 처리</b>할 수 있고, "모르는 문자(OOV)"가
+     <b>원천적으로 없습니다.</b> 한글은 음절당 3바이트라 바이트 단위로 쪼개 학습됩니다 — GuppyLM이 한국어를
+     <b>이미</b> 다룰 수 있는 이유입니다.</p>
+
+  <div class="callout"><b><code>vocab_size</code>의 의미:</b> 병합을 <b>몇 개까지</b> 만들지의 상한입니다.
+    크게 잡으면 더 긴 덩어리가 토큰이 되어 시퀀스가 짧아지고, 작으면 더 잘게 쪼개집니다. 영어만 쓸 땐 4096으로
+    충분했지만, 한국어 서브워드를 담을 자리를 늘리려 <b>8192</b>로 올렸습니다(아래 코드).</div>
+
   <pre><span class="c"># prepare_data.py</span>
 VOCAB_SIZE = <span class="m">8192</span>   <span class="c"># 4096 → 8192 (한글 3바이트 음절 수용)</span>
 
