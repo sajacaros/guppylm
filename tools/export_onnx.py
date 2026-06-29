@@ -130,14 +130,19 @@ def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, pus
         # Preprocess before quantizing. quantize_dynamic runs onnx's *static* shape
         # inference, which can't reconcile the MoE router's tiny (d_model -> n_experts)
         # MatMul and raised "[ShapeInferenceError] ... dimension 0: (d_model) vs
-        # (n_experts)". quant_pre_process runs symbolic shape inference + graph
-        # optimization first (folding the transposed weight, fusing the MatMul), so the
-        # quantizer then sees a consistent graph. Dense models have no router, which is
-        # why only MoE export hit this. If a future model still trips onnx static shape
-        # inference here, pass skip_onnx_shape=True (dynamic quant only needs the static
-        # weight initializers, not inferred activation shapes).
+        # (n_experts)". quant_pre_process's graph optimization folds the transposed router
+        # weight and fuses that MatMul, so quantize_dynamic then sees a consistent graph.
+        # Dense models have no router, which is why only MoE export hit this.
+        #
+        # skip_symbolic_shape=True: quant_pre_process otherwise runs SymbolicShapeInference
+        # first, and that asserts on the Range op emitted by torch.arange(T) for the
+        # positional ids — with seq_len a dynamic axis it tracks Range's `limit` as a
+        # multi-element shape value and trips `assert len(x) == 1` in as_scalar. Symbolic
+        # shape inference is irrelevant to dynamic quant (which needs only the static weight
+        # initializers, not activation shapes), and the graph optimization that actually
+        # fixes the router runs independently — so skip the symbolic pass.
         prep_path = output_path.replace(".onnx", "_prep.onnx")
-        quant_pre_process(fp32_path, prep_path)
+        quant_pre_process(fp32_path, prep_path, skip_symbolic_shape=True)
 
         quantize_dynamic(
             prep_path,
