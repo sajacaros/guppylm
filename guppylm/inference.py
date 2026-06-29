@@ -29,10 +29,21 @@ class GuppyInference:
         else:
             state_dict = ckpt
 
-        # Load config — try config.json first, fall back to embedded config
-        if os.path.exists(config_path):
+        # Load config — the checkpoint's embedded config (saved by train.py alongside the
+        # weights) is authoritative, so prefer it. Fall back to a sibling config.json, which
+        # may be either the nested {"model": {...}, "train": {...}} form written by train.py
+        # or a flat HF-style file. Reading the nested form with flat keys silently dropped
+        # every value to its default — a wrong default (e.g. vocab_size) then mismatches.
+        cfg = None
+        if isinstance(ckpt, dict) and "config" in ckpt:
+            cfg = ckpt["config"]
+        elif os.path.exists(config_path):
             with open(config_path) as f:
                 cfg = json.load(f)
+            if isinstance(cfg.get("model"), dict):  # train.py nests model config under "model"
+                cfg = cfg["model"]
+
+        if cfg is not None:
             # Support both HF standard keys and our own keys
             self.config = GuppyConfig(
                 vocab_size=cfg.get("vocab_size", 8192),
@@ -50,9 +61,6 @@ class GuppyInference:
                 bos_id=cfg.get("bos_token_id", cfg.get("bos_id", 1)),
                 eos_id=cfg.get("eos_token_id", cfg.get("eos_id", 2)),
             )
-        elif isinstance(ckpt, dict) and "config" in ckpt:
-            valid_fields = {f.name for f in GuppyConfig.__dataclass_fields__.values()}
-            self.config = GuppyConfig(**{k: v for k, v in ckpt["config"].items() if k in valid_fields})
         else:
             print("Warning: No config found, using defaults")
             self.config = GuppyConfig()
