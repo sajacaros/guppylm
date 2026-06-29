@@ -173,6 +173,21 @@ def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, pus
         prep_path = output_path.replace(".onnx", "_prep.onnx")
         quant_pre_process(fp32_path, prep_path, skip_symbolic_shape=True)
 
+        # Drop stale intermediate shape annotations before quantizing. quant_pre_process's
+        # graph optimization rewrites the expert weight transposes (Linear -> Gemm/MatMul
+        # fusion) but leaves behind value_info for the *old* intermediate tensors. The first
+        # thing quantize_dynamic does is re-run onnx.shape_inference, whose freshly inferred
+        # shape (384 = d_model) then collides with those stale entries (768 = ffn_hidden) in
+        # mergeInShapeInfo, raising "[ShapeInferenceError] Inferred shape and existing shape
+        # differ in dimension 0: (384) vs (768)". Clearing graph.value_info lets that
+        # re-inference start clean; graph input/output shapes are untouched. This is the same
+        # transposed-weight class of bug the router MatMul comment above describes, now on the
+        # expert up/down projections, which constant-folding didn't reconcile.
+        import onnx
+        prep_model = onnx.load(prep_path)
+        del prep_model.graph.value_info[:]
+        onnx.save_model(prep_model, prep_path, save_as_external_data=False)
+
         quantize_dynamic(
             prep_path,
             output_path,
