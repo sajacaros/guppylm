@@ -95,7 +95,8 @@
   <a href="#route">6. 라우팅</a>
   <a href="#chat">7. 대화</a>
   <a href="#exp">8. dense 비교</a>
-  <a href="#ex">9. 실습 과제</a>
+  <a href="#serve">9. Playground</a>
+  <a href="#ex">10. 실습 과제</a>
   <a href="#trouble">트러블슈팅</a>
 </div></nav>
 
@@ -113,7 +114,8 @@
     <span class="chip"><b>6</b> route → 전문가 분석</span>
     <span class="chip"><b>7</b> chat</span>
     <span class="chip"><b>8</b> dense 비교</span>
-    <span class="chip"><b>9</b> 직접 바꿔보기</span>
+    <span class="chip"><b>9</b> 브라우저로 띄우기</span>
+    <span class="chip"><b>10</b> 직접 바꿔보기</span>
   </div>
   <p class="mut">아래 출력 예시는 빠른 확인을 위해 <b>800 샘플</b>로 돌린 실제 결과입니다. 본 학습(기본 60,000 샘플)에서는
      숫자가 더 크게 나옵니다 — 중요한 건 값이 아니라 <b>형태와 성공 신호</b>입니다.</p>
@@ -363,9 +365,48 @@ use_moe: bool = <span class="m">False</span>     <span class="c"># True → Fals
   </table>
 </section>
 
-<!-- 9 실습 과제 -->
+<!-- 9 Playground -->
+<section id="serve">
+  <h2><span class="n">9</span> 브라우저로 띄우기 — Playground <span class="min">~3분</span></h2>
+  <p>이제 터미널을 벗어나, 학습한 모델을 <b>브라우저 안에서</b> 돌려봅니다. <code>docs/playground.html</code>은
+     ONNX Runtime Web(WASM)으로 추론을 <b>방문자 CPU에서</b> 실행하는 정적 페이지라, 서버·API 키가 필요 없습니다.
+     dense 모델(<code>docs/model.onnx</code>)은 저장소에 이미 들어있어 바로 동작하고, <b>MoE 탭</b>은 방금 학습한 체크포인트를
+     브라우저용으로 한 번 내보내면 켜집니다.</p>
+  <div class="term">
+    <div class="bar"><i style="background:#ff5f56"></i><i style="background:#ffbd2e"></i><i style="background:#27c93f"></i><span class="t">bash</span></div>
+<pre><span class="dim"># (선택) MoE 탭 활성화 — 학습한 모델을 브라우저용 ONNX로 내보내 docs/에 둡니다</span>
+<span class="cmd">python tools/export_onnx.py \
+    --checkpoint checkpoints/best_model.pt \
+    --tokenizer  data/tokenizer.json \
+    --output     docs/model_moe.onnx</span>
+<span class="out">→ docs/model_moe.onnx + docs/tokenizer_moe.json 생성</span>
+
+<span class="dim"># docs/ 를 정적 서버로 띄웁니다 (포트 7900)</span>
+<span class="cmd">python -m http.server 7900 --directory docs</span>
+<span class="out">Serving HTTP on 0.0.0.0 port 7900 (http://0.0.0.0:7900/) ...</span></pre>
+  </div>
+  <p>그 다음 브라우저에서 <a href="http://localhost:7900/playground.html"><code>http://localhost:7900/playground.html</code></a>
+     을 엽니다. <b>💬 Dense</b>·<b>🧠 MoE</b> 챗봇, 같은 질문을 양쪽에 던지는 <b>⚖️ 비교</b> 탭,
+     <b>📐 아키텍처</b> 가이드가 한 페이지에 들어 있습니다.</p>
+  <div class="box ok"><span class="h">✓ 성공 신호</span> <code>http://localhost:7900/playground.html</code>에서
+    <b>💬 Dense 탭이 모델을 불러온 뒤</b> 한 줄 입력에 답하면 성공입니다. MoE를 export했다면 <b>🧠 MoE 탭</b>도
+    같은 식으로 켜지고, 안 했다면 그 탭은 "모델을 export하면 활성화됩니다" 안내로 우아하게 degrade 됩니다(에러로 죽지 않음).</div>
+  <div class="box warn"><span class="h">두 가지 주의</span>
+    <ul style="margin:6px 0">
+      <li><b><code>file://</code>로 직접 열면 안 됩니다.</b> 페이지가 모델·토크나이저를 <code>fetch</code>로 받는데
+        <code>file://</code>에선 브라우저가 이를 막습니다. 반드시 위처럼 <code>http.server</code>로 띄워 <code>http://</code>로 접속하세요.</li>
+      <li><b>원격 GPU 서버에서 학습했다면</b> 내 노트북 브라우저에서 보려면 SSH 포트포워딩이 필요합니다 —
+        로컬에서 <code>ssh -L 7900:localhost:7900 사용자@서버</code>로 접속한 뒤 같은 주소를 열면 됩니다.</li>
+    </ul></div>
+  <div class="box why"><span class="h">왜 브라우저에서도 돌아가나</span> 학습은 PyTorch(서버)로 했지만, 추론 그래프를 ONNX로 내보내면
+    <code>onnxruntime-web</code>(C++ 엔진을 WASM으로 컴파일한 것)이 같은 연산을 브라우저 탭에서 그대로 실행합니다.
+    9M~21M 규모의 작은 Guppy라 방문자 CPU만으로 충분합니다. 자세한 원리는
+    <a href="moe-korean.html">moe-korean.html</a>의 WASM 섹션을 참고하세요.</div>
+</section>
+
+<!-- 10 실습 과제 -->
 <section id="ex">
-  <h2><span class="n">9</span> 직접 바꿔보기 <span class="min">실습 과제</span></h2>
+  <h2><span class="n">10</span> 직접 바꿔보기 <span class="min">실습 과제</span></h2>
 
   <div class="ex">
     <span class="lvl easy">쉬움</span> <b>전문가 수를 8개로</b>
