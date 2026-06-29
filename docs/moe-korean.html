@@ -185,6 +185,22 @@
     <tr><td><code>dropout</code></td><td>0.1</td><td>정규화</td></tr>
   </table>
 
+  <h3>전체 구조 — 원조 트랜스포머 (인코더 · 디코더)</h3>
+  <p>참고로 "Attention Is All You Need"(2017)의 원래 트랜스포머 전체 구조입니다. 왼쪽은 <b>인코더</b>,
+     오른쪽은 <b>디코더</b> 스택이고, 각 스택을 <code>num_layers</code>번 쌓습니다.</p>
+
+  <div class="callout warn"><b>GuppyLM의 위치:</b> GuppyLM은 이 그림의 <b>오른쪽 디코더 스택만</b> 쓰는
+    <b>decoder-only</b> 모델입니다(GPT 계열). 인코더가 없으니 가운데 <b>인코더–디코더 어텐션도 빠지고</b>,
+    블록 하나에는 <b>Masked Self-Attention + FFN</b> 두 층만 남습니다 — 그 단순화된 블록이 바로 아래
+    "블록 내부" 그림입니다.</div>
+
+  <figure style="margin:16px 0;text-align:center">
+    <img src="transformer_overview.png" alt="원조 트랜스포머 인코더-디코더 전체 구조 (Attention Is All You Need)"
+         style="max-width:560px;width:100%;background:#fff;border-radius:12px;padding:14px;border:1px solid var(--line)"/>
+    <figcaption style="font-size:12px;color:var(--mut);margin-top:8px">출처: 딥 러닝을 이용한 자연어 처리 입문 —
+      <a href="https://wikidocs.net/31379" target="_blank" rel="noopener" style="color:var(--teal)">wikidocs.net/31379</a></figcaption>
+  </figure>
+
   <h3>블록 내부 — Pre-LN + 잔차(residual)</h3>
   <p>블록 하나는 두 개의 <b>잔차 연결</b>로 되어 있습니다. 입력 <code>x</code>는 위쪽 "고속도로"로 그대로 흐르고,
      아래쪽 가지에서 <b>먼저 LayerNorm을 거친 뒤</b>(=Pre-LN) 어텐션·FFN을 통과한 결과를 다시 더해줍니다.
