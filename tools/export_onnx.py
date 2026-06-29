@@ -122,12 +122,25 @@ def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, pus
     # Quantize to uint8 — ~4x smaller, negligible quality loss at 9M params
     if quantize:
         from onnxruntime.quantization import quantize_dynamic, QuantType
+        from onnxruntime.quantization.shape_inference import quant_pre_process
 
         fp32_path = output_path.replace(".onnx", "_fp32.onnx")
         os.rename(output_path, fp32_path)
 
+        # Preprocess before quantizing. quantize_dynamic runs onnx's *static* shape
+        # inference, which can't reconcile the MoE router's tiny (d_model -> n_experts)
+        # MatMul and raised "[ShapeInferenceError] ... dimension 0: (d_model) vs
+        # (n_experts)". quant_pre_process runs symbolic shape inference + graph
+        # optimization first (folding the transposed weight, fusing the MatMul), so the
+        # quantizer then sees a consistent graph. Dense models have no router, which is
+        # why only MoE export hit this. If a future model still trips onnx static shape
+        # inference here, pass skip_onnx_shape=True (dynamic quant only needs the static
+        # weight initializers, not inferred activation shapes).
+        prep_path = output_path.replace(".onnx", "_prep.onnx")
+        quant_pre_process(fp32_path, prep_path)
+
         quantize_dynamic(
-            fp32_path,
+            prep_path,
             output_path,
             weight_type=QuantType.QUInt8,
         )
@@ -135,6 +148,7 @@ def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, pus
         q_size_mb = os.path.getsize(output_path) / 1e6
         print(f"Quantized {output_path} ({q_size_mb:.1f} MB, uint8)")
         os.remove(fp32_path)
+        os.remove(prep_path)
 
     # Copy tokenizer alongside the ONNX model (needed for web/ GitHub Pages demo).
     # Name it to match the model: model.onnx -> tokenizer.json, model_moe.onnx -> tokenizer_moe.json
