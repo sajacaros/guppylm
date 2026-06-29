@@ -222,18 +222,23 @@
 <!-- 4 모델 구조 -->
 <section id="model">
   <h2><span class="n">4</span> 모델 구조 확인 — dense vs MoE <span class="min">~2분</span></h2>
-  <p>학습 전에, 모델이 정말 MoE로 구성됐는지와 파라미터 수를 확인합니다.</p>
+  <p>학습 전에, 모델이 정말 MoE로 구성됐는지와 파라미터 수를 확인합니다. 저장소에 들어있는
+    <code>check_model.py</code>를 <b>저장소 루트에서</b> 실행하세요.</p>
   <div class="term">
     <div class="bar"><i style="background:#ff5f56"></i><i style="background:#ffbd2e"></i><i style="background:#27c93f"></i><span class="t">bash</span></div>
-<pre><span class="cmd">python - &lt;&lt;'PY'</span>
-<span class="dim">from guppylm.config import GuppyConfig</span>
-<span class="dim">from guppylm.model import GuppyLM</span>
-<span class="dim">for moe in (False, True):</span>
-<span class="dim">    m = GuppyLM(GuppyConfig(use_moe=moe))</span>
-<span class="dim">    print(m.param_summary())</span>
-<span class="cmd">PY</span>
+<pre><span class="cmd">python check_model.py</span>
 <span class="out">GuppyLM (dense): 10,304,... params (10.3M)</span>
 <span class="hl">GuppyLM (MoE 4x top-2): 20.9M total / 13.9M active per token</span></pre>
+  </div>
+  <p>스크립트 내용은 다음과 같습니다 — 직접 만들어 보려면 이 코드를 <code>check_model.py</code>로 저장하세요.</p>
+  <div class="term">
+    <div class="bar"><i style="background:#ff5f56"></i><i style="background:#ffbd2e"></i><i style="background:#27c93f"></i><span class="t">check_model.py</span></div>
+<pre><span class="dim">from guppylm.config import GuppyConfig</span>
+<span class="dim">from guppylm.model import GuppyLM</span>
+
+<span class="dim">for moe in (False, True):</span>
+<span class="dim">    m = GuppyLM(GuppyConfig(use_moe=moe))</span>
+<span class="dim">    print(m.param_summary())</span></pre>
   </div>
   <table>
     <tr><th></th><th>전체(메모리/용량)</th><th>토큰당 활성(연산)</th></tr>
@@ -242,6 +247,15 @@
   </table>
   <div class="box ok"><span class="h">✓ 성공 신호</span> MoE 줄에 <code>20.9M total / 13.9M active</code>가 보이면 모델이 제대로
     전문가 4개로 구성된 것입니다. <b>용량은 ~2배인데 토큰당 연산은 절반 수준만</b> 늘었다는 게 MoE의 핵심입니다.</div>
+  <div class="box warn"><span class="h">자주 나는 에러 두 가지</span>
+    <ul style="margin:6px 0">
+      <li><code>ModuleNotFoundError: No module named 'guppylm'</code> — <b>저장소 루트가 아닌 곳에서 실행</b>한 경우입니다.
+        <code>guppylm</code>은 PyPI 패키지가 아니라 저장소 안의 로컬 폴더라서, <code>guppylm/</code> 폴더가 보이는 위치로
+        <code>cd</code> 한 뒤 다시 실행해야 합니다.</li>
+      <li><code>IndentationError: unexpected indent</code> — 코드를 <b>대화형 파이썬 셸(<code>&gt;&gt;&gt;</code>)에 한 줄씩 붙여넣을 때</b>
+        앞에 공백이 끼어 발생합니다. REPL에 붙여넣지 말고 위처럼 <code>python check_model.py</code> 파일로 실행하세요.</li>
+    </ul>
+    <code>python: command not found</code>가 나오면 <code>python3 check_model.py</code>로 실행하세요.</div>
 </section>
 
 <!-- 5 학습 -->
