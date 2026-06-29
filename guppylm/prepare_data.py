@@ -7,7 +7,7 @@ import random
 random.seed(42)
 
 DATA_DIR = "data"
-VOCAB_SIZE = 4096
+VOCAB_SIZE = 8192  # bumped from 4096 to make room for Korean subwords (3-byte Hangul syllables)
 
 SPECIAL_TOKENS = [
     "<pad>",         # 0
@@ -60,14 +60,15 @@ def prepare(data_dir=DATA_DIR, n_samples=60000, eval_ratio=0.05):
     tokenizer_path = os.path.join(data_dir, "tokenizer.json")
     tokenizer = train_tokenizer(texts, tokenizer_path)
 
-    # Quick test
-    test = "<|im_start|>user\nhi guppy<|im_end|>"
-    ids = tokenizer.encode(test).ids
-    decoded = tokenizer.decode(ids)
-    print(f"\nTokenizer test:")
-    print(f"  Input:   {test}")
-    print(f"  Tokens:  {len(ids)} ids")
-    print(f"  Decoded: {decoded}")
+    # Quick test — both languages must round-trip cleanly through the byte-level BPE.
+    for test in ["<|im_start|>user\nhi guppy<|im_end|>",
+                 "<|im_start|>user\n안녕 구피<|im_end|>"]:
+        ids = tokenizer.encode(test).ids
+        decoded = tokenizer.decode(ids)
+        print(f"\nTokenizer test:")
+        print(f"  Input:   {test}")
+        print(f"  Tokens:  {len(ids)} ids")
+        print(f"  Decoded: {decoded}")
 
 
 if __name__ == "__main__":

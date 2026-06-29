@@ -35,13 +35,17 @@ class GuppyInference:
                 cfg = json.load(f)
             # Support both HF standard keys and our own keys
             self.config = GuppyConfig(
-                vocab_size=cfg.get("vocab_size", 4096),
+                vocab_size=cfg.get("vocab_size", 8192),
                 max_seq_len=cfg.get("max_position_embeddings", cfg.get("max_seq_len", 128)),
                 d_model=cfg.get("hidden_size", cfg.get("d_model", 384)),
                 n_layers=cfg.get("num_hidden_layers", cfg.get("n_layers", 6)),
                 n_heads=cfg.get("num_attention_heads", cfg.get("n_heads", 6)),
                 ffn_hidden=cfg.get("intermediate_size", cfg.get("ffn_hidden", 768)),
                 dropout=cfg.get("hidden_dropout_prob", cfg.get("dropout", 0.1)),
+                use_moe=cfg.get("use_moe", True),
+                n_experts=cfg.get("n_experts", 4),
+                moe_top_k=cfg.get("moe_top_k", 2),
+                aux_loss_coef=cfg.get("aux_loss_coef", 0.01),
                 pad_id=cfg.get("pad_token_id", cfg.get("pad_id", 0)),
                 bos_id=cfg.get("bos_token_id", cfg.get("bos_id", 1)),
                 eos_id=cfg.get("eos_token_id", cfg.get("eos_id", 2)),

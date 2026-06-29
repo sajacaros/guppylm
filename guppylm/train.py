@@ -81,12 +81,12 @@ def train():
 
     model.train()
     step, best_eval = 0, float("inf")
-    losses = []
+    losses, aux_losses = [], []
     t0 = time.time()
 
-    print(f"\nTraining for {tc.max_steps} steps...")
-    print(f"{'Step':>6} | {'LR':>10} | {'Train':>10} | {'Eval':>10} | {'Time':>8}")
-    print("-" * 56)
+    print(f"\nTraining for {tc.max_steps} steps... (MoE: {mc.use_moe})")
+    print(f"{'Step':>6} | {'LR':>10} | {'Train':>10} | {'Aux':>8} | {'Eval':>10} | {'Time':>8}")
+    print("-" * 66)
 
     while step < tc.max_steps:
         for x, y in train_loader:
@@ -114,17 +114,20 @@ def train():
 
             optimizer.zero_grad(set_to_none=True)
             losses.append(loss.item())
+            aux_losses.append(model.last_aux_loss.item() if model.last_aux_loss is not None else 0.0)
 
             if step % 100 == 0:
                 avg = sum(losses[-100:]) / len(losses[-100:])
+                aux = sum(aux_losses[-100:]) / len(aux_losses[-100:])
                 elapsed = time.time() - t0
-                print(f"{step:6d} | {lr:10.6f} | {avg:10.4f} | {'--':>10} | {elapsed:7.1f}s")
+                print(f"{step:6d} | {lr:10.6f} | {avg:10.4f} | {aux:8.3f} | {'--':>10} | {elapsed:7.1f}s")
 
             if step > 0 and step % tc.eval_interval == 0:
                 el = evaluate(model, eval_loader, device)
                 avg_train = sum(losses[-tc.eval_interval:]) / min(len(losses), tc.eval_interval)
+                aux = sum(aux_losses[-tc.eval_interval:]) / min(len(aux_losses), tc.eval_interval)
                 elapsed = time.time() - t0
-                print(f"{step:6d} | {lr:10.6f} | {avg_train:10.4f} | {el:10.4f} | {elapsed:7.1f}s")
+                print(f"{step:6d} | {lr:10.6f} | {avg_train:10.4f} | {aux:8.3f} | {el:10.4f} | {elapsed:7.1f}s")
 
                 if el < best_eval:
                     best_eval = el

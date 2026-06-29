@@ -39,6 +39,7 @@ def main():
         print("  python -m guppylm train        Train the model")
         print("  python -m guppylm prepare      Generate data & train tokenizer")
         print("  python -m guppylm chat         Chat with Guppy")
+        print("  python -m guppylm route        Analyze MoE expert routing (Korean vs English)")
         print("  python -m guppylm download     Download pre-trained model from HuggingFace")
         return
 
@@ -55,6 +56,13 @@ def main():
 
     elif cmd == "download":
         download_model()
+
+    elif cmd == "route":
+        if not os.path.exists(CHECKPOINT_PATH):
+            print("Model not found. Train or download a model first.")
+            return
+        from .eval_routing import main as routing_main
+        routing_main()
 
     elif cmd == "chat":
         if not os.path.exists(CHECKPOINT_PATH):

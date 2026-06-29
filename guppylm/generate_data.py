@@ -1568,6 +1568,7 @@ def _make_sample(user_msg, guppy_msg, category):
         "input": user_msg,
         "output": guppy_msg,
         "category": category,
+        "lang": "en",
     }
 
 
@@ -1641,8 +1642,8 @@ def to_openai(s):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def generate_dataset(n_samples=60000, eval_ratio=0.05):
-    # All topics get equal weight — single-turn only
-    topics = [
+    # English topics — single-turn, equal weight.
+    en_topics = [
         gen_greeting, gen_feeling, gen_temp_hot, gen_temp_cold, gen_food,
         gen_light, gen_water, gen_about, gen_confused, gen_tank, gen_noise,
         gen_night, gen_lonely, gen_misc, gen_bye,
@@ -1655,23 +1656,28 @@ def generate_dataset(n_samples=60000, eval_ratio=0.05):
         gen_weather, gen_sleep, gen_friends, gen_joke, gen_fear, gen_love,
         gen_age, gen_smart, gen_poop, gen_doctor, gen_singing, gen_tv,
     ]
-    w = 1.0 / len(topics)
-    generators = [(g, w) for g in topics]
+    # Korean topics — same 60 categories, mirrored. Bilingual: half EN, half KO.
+    from .generate_data_ko import KO_GENERATORS
+    ko_topics = list(KO_GENERATORS)
 
-    total_w = sum(w for _, w in generators)
-    generators = [(g, w / total_w) for g, w in generators]
-    counts = [(g, max(1, int(n_samples * w))) for g, w in generators]
-    total = sum(c for _, c in counts)
-    if n_samples - total > 0:
-        counts[0] = (counts[0][0], counts[0][1] + n_samples - total)
+    # Split the budget 50/50 across languages, equal weight within each language.
+    plan = []  # list of (generator, count)
+    half = n_samples // 2
+    for langset in (en_topics, ko_topics):
+        per = max(1, half // len(langset))
+        for g in langset:
+            plan.append((g, per))
+    total = sum(c for _, c in plan)
+    if n_samples - total > 0:  # dump the rounding remainder onto the first generator
+        plan[0] = (plan[0][0], plan[0][1] + n_samples - total)
 
     samples = []
-    for gen, count in counts:
+    for gen, count in plan:
         for _ in range(count):
             try:
                 samples.append(gen())
             except Exception as e:
-                print(f"Error in {gen.__name__}: {e}")
+                print(f"Error in {getattr(gen, '__name__', gen)}: {e}")
 
     random.shuffle(samples)
     n_eval = int(len(samples) * eval_ratio)
@@ -1681,17 +1687,23 @@ def generate_dataset(n_samples=60000, eval_ratio=0.05):
     for name, data in [("data/train.jsonl", train_samples), ("data/eval.jsonl", eval_samples)]:
         with open(name, "w") as f:
             for s in data:
-                f.write(json.dumps({"text": format_sample(s), "category": s["category"]}) + "\n")
+                f.write(json.dumps({
+                    "text": format_sample(s),
+                    "category": s["category"],
+                    "lang": s.get("lang", "en"),
+                }, ensure_ascii=False) + "\n")
     for name, data in [("data/train_openai.jsonl", train_samples), ("data/eval_openai.jsonl", eval_samples)]:
         with open(name, "w") as f:
             for s in data:
-                f.write(json.dumps(to_openai(s)) + "\n")
+                f.write(json.dumps(to_openai(s), ensure_ascii=False) + "\n")
 
     cats = Counter(s["category"] for s in samples)
+    langs = Counter(s.get("lang", "en") for s in samples)
     unique_outputs = len(set(s["output"] for s in samples))
 
     print(f"Generated {len(samples)} samples ({unique_outputs} unique outputs, {unique_outputs/len(samples)*100:.1f}% unique):")
     print(f"  Train: {len(train_samples)}, Eval: {n_eval}")
+    print(f"  By language: " + ", ".join(f"{k}={v}" for k, v in sorted(langs.items())))
     print(f"\nBy category:")
     for cat, count in sorted(cats.items(), key=lambda x: -x[1]):
         print(f"  {cat}: {count} ({count/len(samples)*100:.1f}%)")

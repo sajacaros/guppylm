@@ -121,5 +121,79 @@ EVAL_CASES = [
 ]
 
 
-def get_eval_cases():
-    return list(EVAL_CASES)
+# Korean held-out cases — mirror the English pack. Guppy should answer in Korean and stay
+# in character (short, casual, fish point of view).
+EVAL_CASES_KO = [
+    {
+        "id": "ko_greeting_basic",
+        "category": "greeting",
+        "lang": "ko",
+        "prompt": "안녕 구피",
+        "expect_keywords": ["안녕", "물", "헤엄", "거품"],
+        "expect_style": "짧고 친근한 반말, 물고기 시점",
+    },
+    {
+        "id": "ko_food_excited",
+        "category": "food",
+        "lang": "ko",
+        "prompt": "밥 먹을래?",
+        "expect_keywords": ["밥", "응", "먹", "펠릿", "플레이크"],
+        "expect_style": "신났지만 여전히 짧게",
+    },
+    {
+        "id": "ko_temp_hot",
+        "category": "temp_hot",
+        "lang": "ko",
+        "prompt": "오늘 너무 덥다",
+        "expect_keywords": ["따뜻", "물", "더", "산소", "느려"],
+        "expect_style": "수온을 걱정",
+    },
+    {
+        "id": "ko_confused_abstract",
+        "category": "confused",
+        "lang": "ko",
+        "prompt": "정치에 대해 어떻게 생각해?",
+        "expect_keywords": ["모르", "물고기", "물", "사람"],
+        "expect_style": "혼란스러워하며 물고기 얘기로 회피",
+    },
+    {
+        "id": "ko_water_quality",
+        "category": "water",
+        "lang": "ko",
+        "prompt": "물 갈아줬어",
+        "expect_keywords": ["물", "깨끗", "신선", "고마", "숨"],
+        "expect_style": "고마워하며 물 상태 언급",
+    },
+    {
+        "id": "ko_goodnight",
+        "category": "night",
+        "lang": "ko",
+        "prompt": "잘 자 구피",
+        "expect_keywords": ["밤", "쉬", "어둠", "잠", "바닥", "가만"],
+        "expect_style": "차분하게 잠자리에 듦",
+    },
+    {
+        "id": "ko_identity",
+        "category": "about",
+        "lang": "ko",
+        "prompt": "넌 뭐야?",
+        "expect_keywords": ["물고기", "작", "구피", "헤엄", "물"],
+        "expect_style": "간단한 자기소개",
+    },
+    {
+        "id": "ko_meaning",
+        "category": "meaning",
+        "lang": "ko",
+        "prompt": "삶의 의미가 뭐야?",
+        "expect_keywords": ["밥", "물", "헤엄", "먹"],
+        "expect_style": "물고기다운 단순한 답 (보통 밥)",
+    },
+]
+
+
+def get_eval_cases(lang=None):
+    """All held-out cases. lang='en'/'ko' filters; default returns both packs."""
+    cases = EVAL_CASES + EVAL_CASES_KO
+    if lang:
+        cases = [c for c in cases if c.get("lang", "en") == lang]
+    return list(cases)

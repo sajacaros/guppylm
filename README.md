@@ -82,6 +82,34 @@ Vanilla transformer. No GQA, no RoPE, no SwiGLU, no early exit. As simple as it 
 
 ---
 
+## 🐟 Bilingual MoE version
+
+An extension that makes Guppy speak **Korean too** and replaces the dense FFN with a
+**Mixture-of-Experts** (4 experts, top-2). Two docs (written in Korean):
+**[`docs/tutorial.html`](docs/tutorial.html)** is a hands-on, command-by-command walkthrough;
+**[`docs/moe-korean.html`](docs/moe-korean.html)** explains why each stage changes (diagrams + code).
+
+| | dense (original) | MoE (this version) |
+|---|---|---|
+| FFN | 1 per block | **4 experts + router, top-2** |
+| Language | English | **Korean + English (50:50)** |
+| Vocab cap | 4,096 | **8,192** (fits Hangul) |
+| Params | 10.3M | **20.9M total / 13.9M active per token** |
+| Loss | CE | **CE + load-balancing aux loss** |
+
+Routing is **learned** (Switch/Mixtral style) — experts are not assigned roles; specialisation
+emerges during training. Set `config.use_moe = False` to fall back to the dense model.
+
+```bash
+python -m guppylm prepare    # bilingual data + 8192 tokenizer
+python -m guppylm train      # train MoE (logs an Aux column)
+python -m guppylm route      # which experts Korean vs English flow to  ← the MoE highlight
+python -m guppylm chat -p "hi guppy"
+python -m guppylm chat -p "안녕 구피"
+```
+
+---
+
 ## Personality
 
 Guppy:

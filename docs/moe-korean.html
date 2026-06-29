@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>GuppyLM · 한·영 MoE 전환 가이드</title>
+<style>
+  :root{
+    --bg:#0b1620; --panel:#0f2230; --panel2:#13283a; --ink:#dbeafe; --mut:#8aa6bb;
+    --teal:#0891b2; --aqua:#64ffda; --line:#1d3a4f; --warn:#fbbf24; --pink:#f472b6;
+    --code:#0a1a26; --kw:#7dd3fc; --str:#86efac; --com:#5b7385; --num:#fca5a5;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);
+    color:var(--ink);font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+  a{color:var(--aqua);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:980px;margin:0 auto;padding:0 22px}
+  header.hero{padding:54px 0 34px;border-bottom:1px solid var(--line);
+    background:radial-gradient(900px 300px at 20% -10%,rgba(8,145,178,.25),transparent)}
+  .fishtag{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--aqua);
+    border:1px solid var(--line);padding:4px 12px;border-radius:999px;background:rgba(100,255,218,.06)}
+  h1{font-size:38px;margin:16px 0 8px;letter-spacing:-.5px}
+  h1 .sub{color:var(--teal)}
+  .lede{color:var(--mut);font-size:18px;max-width:760px}
+  .meta{margin-top:18px;color:var(--mut);font-size:14px}
+  nav.toc{position:sticky;top:0;z-index:5;background:rgba(11,22,32,.82);backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line);padding:10px 0;margin-bottom:8px}
+  nav.toc .wrap{display:flex;flex-wrap:wrap;gap:6px}
+  nav.toc a{font-size:13px;color:var(--mut);border:1px solid transparent;padding:5px 10px;border-radius:8px}
+  nav.toc a:hover{color:var(--ink);border-color:var(--line);background:var(--panel)}
+  section{padding:34px 0;border-bottom:1px solid var(--line)}
+  h2{font-size:26px;margin:0 0 6px;display:flex;align-items:center;gap:10px}
+  h2 .n{font-size:14px;color:#06212e;background:var(--aqua);min-width:30px;height:30px;border-radius:8px;
+    display:inline-flex;align-items:center;justify-content:center;font-weight:700}
+  h3{font-size:18px;margin:26px 0 8px;color:var(--aqua)}
+  p{margin:10px 0}
+  .mut{color:var(--mut)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:16px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}h1{font-size:30px}}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--aqua);font-weight:600}
+  td code,p code,li code{background:var(--code);color:var(--kw);padding:1px 6px;border-radius:5px;font-size:13px}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow:auto;
+    font:13px/1.65 "SF Mono",ui-monospace,Menlo,Consolas,monospace;margin:14px 0}
+  pre .c{color:var(--com)} pre .k{color:var(--kw)} pre .s{color:var(--str)} pre .m{color:var(--num)}
+  .tag{display:inline-block;font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--mut)}
+  .tag.add{color:var(--str);border-color:#1f5132;background:rgba(134,239,172,.08)}
+  .tag.chg{color:var(--warn);border-color:#5a4514;background:rgba(251,191,36,.08)}
+  .tag.new{color:var(--aqua);border-color:#11525a;background:rgba(100,255,218,.08)}
+  .callout{border-left:3px solid var(--teal);background:var(--panel2);border-radius:0 10px 10px 0;padding:12px 16px;margin:14px 0}
+  .callout.warn{border-color:var(--warn)}
+  .callout.key{border-color:var(--aqua)}
+  ul,ol{margin:10px 0;padding-left:22px}
+  li{margin:5px 0}
+  .pill{font-size:12.5px;color:var(--mut)}
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin:18px 0}
+  .step{flex:1;min-width:120px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center}
+  .step .s-n{font-size:12px;color:var(--teal)}
+  .step .s-t{font-weight:600;margin:4px 0}
+  .step .s-d{font-size:12px;color:var(--mut)}
+  .arrow{align-self:center;color:var(--teal);font-size:20px}
+  @media(max-width:720px){.flow{flex-direction:column}.arrow{transform:rotate(90deg)}}
+  .kbd{font:12px ui-monospace,monospace;background:var(--code);border:1px solid var(--line);
+    border-bottom-width:2px;border-radius:6px;padding:2px 7px;color:var(--ink)}
+  footer{padding:30px 0 60px;color:var(--mut);font-size:13px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--mut);margin:6px 0 0}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="fishtag">🐟 GuppyLM · 약 9M → 21M MoE</span>
+    <h1>한·영 이중언어 <span class="sub">Mixture-of-Experts</span> 전환 가이드</h1>
+    <p class="lede">영어 전용 바닐라 트랜스포머였던 GuppyLM을 (1) 한국어를 말할 수 있게 만들고,
+       (2) 밀집(dense) FFN을 <b>전문가 4개 · top-2 라우팅</b>의 MoE로 바꿉니다.
+       데이터 구축부터 평가까지, 각 단계가 무엇 때문에 어떻게 바뀌는지 코드와 함께 설명합니다.</p>
+    <div class="meta">작성일 2026-06-29 · 대상: <code>guppylm/</code> 소스 · 새 의존성 없음(순수 PyTorch)</div>
+    <a href="tutorial.html" style="margin-top:14px;display:inline-flex;gap:8px;align-items:center;font-size:14px;
+       border:1px solid var(--line);background:var(--panel);padding:8px 14px;border-radius:10px">
+       🐟 직접 따라 해보려면 → <b>tutorial.html</b> (명령어 따라하기)</a>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#overview">개요</a>
+  <a href="#moe">MoE란?</a>
+  <a href="#pipeline">파이프라인</a>
+  <a href="#data">① 데이터</a>
+  <a href="#tok">② 토크나이저</a>
+  <a href="#model">③ 모델</a>
+  <a href="#train">④ 학습</a>
+  <a href="#eval">⑤ 평가</a>
+  <a href="#run">실행 과정</a>
+  <a href="#faq">설계 Q&amp;A</a>
+</div></nav>
+
+<div class="wrap">
+
+<!-- ───────────────────────── 개요 ───────────────────────── -->
+<section id="overview">
+  <h2><span class="n">◎</span> 개요 — 무엇이 바뀌나</h2>
+  <p>두 가지 축이 동시에 바뀝니다. <b>언어</b>(영어 → 한·영 이중언어)와 <b>FFN 구조</b>(dense → MoE).
+     이 둘은 서로 맞물립니다: MoE의 전문가들이 학습 중에 <b>언어별로 자연스럽게 분화</b>하는지를
+     평가 단계에서 관찰하는 것이 이 프로젝트의 하이라이트입니다.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3 style="margin-top:4px">Before — dense · 영어</h3>
+      <ul class="mut">
+        <li>블록마다 FFN 1개를 모든 토큰이 통과</li>
+        <li>영어 60주제 합성 대화 6만 건</li>
+        <li>vocab 상한 4096 (실제 ~2,418)</li>
+        <li>총 파라미터 ≈ <b>10.3M</b> (vocab 8192 기준)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:4px">After — MoE · 한·영</h3>
+      <ul>
+        <li>FFN → <b>전문가 4 + 라우터</b>, 토큰마다 top-2만 계산</li>
+        <li>한·영 60주제 × 50:50, <code>lang</code> 필드 추가</li>
+        <li>vocab 상한 <b>8192</b> (한글 음절 수용)</li>
+        <li>총 <b>20.9M</b> / 토큰당 활성 <b>13.9M</b></li>
+      </ul>
+    </div>
+  </div>
+
+  <table>
+    <tr><th>파일</th><th>변경</th><th>핵심</th></tr>
+    <tr><td><code>config.py</code></td><td><span class="tag chg">수정</span></td><td><code>use_moe, n_experts=4, moe_top_k=2, aux_loss_coef</code> 추가 · <code>vocab_size 8192</code></td></tr>
+    <tr><td><code>model.py</code></td><td><span class="tag chg">수정</span></td><td><code>Expert</code>, <code>MoEFFN</code> 신설 · 블록이 dense/MoE 선택 · forward가 aux loss 합산</td></tr>
+    <tr><td><code>generate_data_ko.py</code></td><td><span class="tag new">신규</span></td><td>60주제 한국어 생성기 (<code>KO_GENERATORS</code>)</td></tr>
+    <tr><td><code>generate_data.py</code></td><td><span class="tag chg">수정</span></td><td>한·영 50:50 결합 · <code>lang</code> 기록 · 한글 깨짐 방지(<code>ensure_ascii=False</code>)</td></tr>
+    <tr><td><code>prepare_data.py</code></td><td><span class="tag chg">수정</span></td><td><code>VOCAB_SIZE 8192</code> · 한글 round-trip 테스트</td></tr>
+    <tr><td><code>train.py</code></td><td><span class="tag chg">수정</span></td><td><code>loss = CE + coef·aux</code> · CE/aux 분리 로깅</td></tr>
+    <tr><td><code>eval_routing.py</code></td><td><span class="tag new">신규</span></td><td>언어별 전문가 라우팅 분포 분석 (<code>python -m guppylm route</code>)</td></tr>
+    <tr><td><code>eval_cases.py</code></td><td><span class="tag chg">수정</span></td><td>한국어 홀드아웃 케이스 8종 추가</td></tr>
+    <tr><td><code>inference.py</code> · <code>__main__.py</code></td><td><span class="tag chg">수정</span></td><td>MoE config 로드 · <code>route</code> 명령</td></tr>
+  </table>
+</section>
+
+<!-- ───────────────────────── MoE란 ───────────────────────── -->
+<section id="moe">
+  <h2><span class="n">?</span> MoE란 — 전문가 4개, top-2</h2>
+  <p>밀집 모델은 블록마다 FFN이 <b>하나</b>라서 모든 토큰이 같은 MLP를 통과합니다.
+     MoE는 그 FFN 하나를 <b>같은 모양의 전문가 N개 + 라우터</b>로 바꿉니다. 라우터가 토큰마다
+     전문가 점수를 매기고, 점수 높은 <b>top-2</b>만 실제로 계산해 그 둘의 출력을 가중합합니다.</p>
+
+  <div class="card">
+  <svg viewBox="0 0 900 260" width="100%" role="img" aria-label="MoE 레이어 구조">
+    <defs><marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#0891b2"/></marker></defs>
+    <rect x="20" y="110" width="90" height="40" rx="8" fill="#13283a" stroke="#1d3a4f"/>
+    <text x="65" y="135" fill="#dbeafe" font-size="14" text-anchor="middle">토큰 x</text>
+    <!-- router -->
+    <rect x="150" y="100" width="120" height="60" rx="8" fill="#0f2230" stroke="#11525a"/>
+    <text x="210" y="125" fill="#64ffda" font-size="13" text-anchor="middle">라우터</text>
+    <text x="210" y="145" fill="#8aa6bb" font-size="11" text-anchor="middle">Linear(384→4)</text>
+    <line x1="110" y1="130" x2="150" y2="130" stroke="#0891b2" stroke-width="2" marker-end="url(#ah)"/>
+    <!-- experts -->
+    <g font-size="12">
+      <rect x="360" y="20"  width="190" height="38" rx="8" fill="#102a1c" stroke="#1f5132"/>
+      <text x="455" y="44" fill="#86efac" text-anchor="middle">Expert 0 · up→ReLU→down</text>
+      <rect x="360" y="74" width="190" height="38" rx="8" fill="#0f2230" stroke="#11525a"/>
+      <text x="455" y="98" fill="#64ffda" text-anchor="middle">Expert 1  ✓ 선택</text>
+      <rect x="360" y="128" width="190" height="38" rx="8" fill="#0f2230" stroke="#11525a"/>
+      <text x="455" y="152" fill="#64ffda" text-anchor="middle">Expert 2  ✓ 선택</text>
+      <rect x="360" y="182" width="190" height="38" rx="8" fill="#102a1c" stroke="#1f5132"/>
+      <text x="455" y="206" fill="#5b7385" text-anchor="middle">Expert 3 · (계산 안 함)</text>
+    </g>
+    <g stroke="#0891b2" stroke-width="2">
+      <line x1="270" y1="120" x2="360" y2="93"  marker-end="url(#ah)"/>
+      <line x1="270" y1="140" x2="360" y2="147" marker-end="url(#ah)"/>
+    </g>
+    <g stroke="#1d3a4f" stroke-width="1.5" stroke-dasharray="4 4">
+      <line x1="270" y1="115" x2="360" y2="39"/>
+      <line x1="270" y1="150" x2="360" y2="201"/>
+    </g>
+    <!-- combine -->
+    <rect x="630" y="100" width="120" height="60" rx="8" fill="#13283a" stroke="#1d3a4f"/>
+    <text x="690" y="125" fill="#dbeafe" font-size="13" text-anchor="middle">가중합</text>
+    <text x="690" y="145" fill="#8aa6bb" font-size="11" text-anchor="middle">Σ wᵢ·Expertᵢ(x)</text>
+    <g stroke="#0891b2" stroke-width="2">
+      <line x1="550" y1="93"  x2="630" y2="120" marker-end="url(#ah)"/>
+      <line x1="550" y1="147" x2="630" y2="140" marker-end="url(#ah)"/>
+    </g>
+    <line x1="750" y1="130" x2="850" y2="130" stroke="#0891b2" stroke-width="2" marker-end="url(#ah)"/>
+    <text x="845" y="125" fill="#dbeafe" font-size="14" text-anchor="end">출력</text>
+  </svg>
+  </div>
+
+  <p><b>top-2의 의미</b> — 토큰 하나가 전문가 4명 중 점수 높은 2명에게만 가서, 그 둘의 출력을
+     점수만큼 섞습니다. 예: <code>0.55·Expert1(x) + 0.30·Expert2(x)</code> (두 점수는 합이 1이 되게 재정규화).
+     나머지 두 전문가는 <b>계산 자체를 건너뜁니다</b>.</p>
+
+  <table>
+    <tr><th></th><th>전체 파라미터(용량/메모리)</th><th>토큰당 활성 파라미터(연산)</th></tr>
+    <tr><td>dense (FFN 1개)</td><td>10.3M</td><td>10.3M</td></tr>
+    <tr><td><b>MoE 4-expert top-2</b></td><td><b>20.9M</b></td><td><b>13.9M</b></td></tr>
+  </table>
+  <p class="mut" style="font-size:13.5px">※ 측정값(<code>model.param_count()</code>, vocab 8192). 용량은 약 2배로 커지지만
+     토큰당 실제 연산은 top-2라 절반 수준만 늘어납니다 — "용량은 키우되 연산은 적게"가 MoE의 존재 이유입니다.</p>
+
+  <div class="callout key"><b>핵심:</b> 우리는 전문가에게 역할을 <b>배정하지 않습니다.</b> 4개 전문가는 거의 같게 초기화되고,
+    라우터가 학습으로 배분을 배우면서 전문화가 <b>창발</b>합니다 (Switch/Mixtral 방식). "한국어가 어느 전문가로
+    가는가"는 학습 후 <a href="#eval">관찰</a>하는 결과지, 설계로 정한 값이 아닙니다.</div>
+</section>
+
+<!-- ───────────────────────── 파이프라인 ───────────────────────── -->
+<section id="pipeline">
+  <h2><span class="n">≡</span> 파이프라인 한눈에 보기</h2>
+  <div class="flow">
+    <div class="step"><div class="s-n">①</div><div class="s-t">데이터</div><div class="s-d">한·영 60주제<br/>합성 생성</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="s-n">②</div><div class="s-t">토크나이저</div><div class="s-d">BPE 8192<br/>한글 수용</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="s-n">③</div><div class="s-t">모델</div><div class="s-d">MoE 4·top-2<br/>+ 라우터</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="s-n">④</div><div class="s-t">학습</div><div class="s-d">CE + aux<br/>부하분산</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="s-n">⑤</div><div class="s-t">평가</div><div class="s-d">라우팅 분석<br/>한·영 응답</div></div>
+  </div>
+  <p class="mut">아래에서 각 단계가 MoE/이중언어를 위해 구체적으로 어떻게 바뀌었는지 코드와 함께 봅니다.</p>
+</section>
+
+<!-- ───────────────────────── 데이터 ───────────────────────── -->
+<section id="data">
+  <h2><span class="n">1</span> 데이터 구축 — 한국어 60주제</h2>
+  <p>원본은 <code>generate_data.py</code>가 부품 풀(먹이·사물·활동 단어 목록)을 <b>조합</b>해 영어 대화를
+     만듭니다. 한국어도 똑같은 방식으로, 번역기가 아니라 <b>한국어 부품과 조합 규칙을 새로 작성</b>합니다
+     (<code>generate_data_ko.py</code>). 60개 카테고리 이름은 영어와 동일하게 맞춰 카테고리별 한·영 균형을 잡습니다.</p>
+
+  <h3>Guppy의 한국어 말투</h3>
+  <p>짧은 반말, 물고기 시점, 먹이 집착, 인간 추상개념은 이해 못 함 — 영어판 성격을 그대로 한국어로 옮깁니다.</p>
+  <pre><span class="c"># 입력(사람) → 출력(Guppy)</span>
+"안녕 구피"        → "안녕. 오늘 물이 좋아. 방금 바위 근처에서 놀고 있었어."
+"밥 먹을래?"       → "응. 언제나 응. 지금 위로 헤엄쳐 갈게. 다 먹어버릴 거야 약속해."
+"거품 좋아해?"     → "거품 좋아. 물이 살짝 달라지거든."
+"삶의 의미가 뭐야" → "밥. 답은 언제나 밥이야."
+"정치 어떻게 생각해" → "그게 뭔지 모르겠어. 사람 거 같은데. 물이나 밥 얘기로 바꾸자."</pre>
+
+  <h3>샘플 스키마 — <code>lang</code> 필드 추가</h3>
+  <p>각 샘플에 언어 태그가 붙습니다. 이 태그가 학습 데이터의 언어 균형을 맞추고, 평가에서 언어별 분석을 가능하게 합니다.</p>
+  <pre><span class="c"># data/train.jsonl (한 줄)</span>
+{<span class="k">"text"</span>: <span class="s">"&lt;|im_start|&gt;user\n안녕 구피&lt;|im_end|&gt;\n&lt;|im_start|&gt;assistant\n안녕. 오늘 물이 좋아.&lt;|im_end|&gt;"</span>,
+ <span class="k">"category"</span>: <span class="s">"greeting"</span>, <span class="k">"lang"</span>: <span class="s">"ko"</span>}</pre>
+
+  <div class="callout"><b>왜 50:50인가?</b> 이중언어 모델이 한쪽 언어로 쏠리지 않게 하고, 동시에 MoE 라우터가
+    두 언어의 토큰을 충분히 보게 하려면 균형 잡힌 데이터가 필요합니다. <code>generate_dataset()</code>이
+    예산을 영어·한국어에 절반씩, 각 언어 안에서 60주제 균등 분배합니다.</div>
+
+  <p class="pill">변경 요약: <span class="tag new">신규</span> <code>generate_data_ko.py</code> ·
+     <span class="tag chg">수정</span> <code>generate_data.py</code>(결합·<code>lang</code>·<code>ensure_ascii=False</code>)</p>
+</section>
+
+<!-- ───────────────────────── 토크나이저 ───────────────────────── -->
+<section id="tok">
+  <h2><span class="n">2</span> 토크나이저 — vocab 4096 → 8192</h2>
+  <p>토크나이저 자체는 <b>ByteLevel BPE</b>라 한글을 이미 처리할 수 있습니다 — 한글은 UTF-8에서
+     음절당 3바이트이고, 바이트 단위 BPE는 어떤 문자든 바이트로 쪼개 학습하기 때문입니다.
+     바뀌는 것은 <b>어휘 상한</b>입니다. 영어만 있을 땐 4096(실제 ~2,418)으로 충분했지만, 한국어가 들어오면
+     더 많은 서브워드가 필요해 <b>8192</b>로 올립니다.</p>
+  <pre><span class="c"># prepare_data.py</span>
+VOCAB_SIZE = <span class="m">8192</span>   <span class="c"># 4096 → 8192 (한글 3바이트 음절 수용)</span>
+
+<span class="c"># 한·영 모두 round-trip 검증</span>
+for test in [<span class="s">"&lt;|im_start|&gt;user\nhi guppy&lt;|im_end|&gt;"</span>,
+             <span class="s">"&lt;|im_start|&gt;user\n안녕 구피&lt;|im_end|&gt;"</span>]:
+    ids = tokenizer.encode(test).ids
+    assert tokenizer.decode(ids)  <span class="c"># 한글이 깨지지 않고 복원되어야 함</span></pre>
+  <div class="callout warn"><b>주의 — 임베딩 비용:</b> vocab을 키우면 토큰 임베딩(<code>vocab×384</code>, LM 헤드와 가중치 공유)이
+    커집니다. 8192 → 약 3.1M 파라미터. 그래서 dense 기준선도 8.7M에서 <b>10.3M</b>으로 늘어납니다.
+    한국어 합성 데이터의 어휘는 한정적이라 실제 vocab은 상한보다 작게 학습됩니다.</div>
+  <p class="pill">변경 요약: <span class="tag chg">수정</span> <code>prepare_data.py</code> · <code>config.vocab_size 8192</code></p>
+</section>
+
+<!-- ───────────────────────── 모델 ───────────────────────── -->
+<section id="model">
+  <h2><span class="n">3</span> 모델 — 핵심 변경</h2>
+  <p>밀집 블록의 단일 <code>FFN</code>을 <code>MoEFFN</code>으로 교체합니다. <code>config.use_moe</code> 플래그로
+     dense ↔ MoE를 토글할 수 있어 비교가 쉽습니다.</p>
+
+  <h3>① 라우팅 + top-2 결합</h3>
+  <pre><span class="c"># model.py · MoEFFN.forward (핵심부)</span>
+router_logits = self.router(x_flat)              <span class="c"># (N, E) — 토큰마다 전문가 점수</span>
+router_probs  = F.softmax(router_logits, dim=-1)
+topk_probs, topk_idx = torch.topk(router_probs, self.top_k, dim=-1)   <span class="c"># top-2</span>
+topk_probs = topk_probs / topk_probs.sum(-1, keepdim=True)            <span class="c"># 가중치 재정규화</span>
+
+out = torch.zeros_like(x_flat)
+<span class="k">for</span> e <span class="k">in</span> range(self.n_experts):           <span class="c"># 전문가는 4개뿐 → 루프가 싸다</span>
+    sel = (topk_idx == e)
+    <span class="k">if</span> <span class="k">not</span> sel.any(): <span class="k">continue</span>
+    tok, slot = sel.nonzero(as_tuple=True)        <span class="c"># 이 전문가를 고른 토큰만</span>
+    w = topk_probs[tok, slot].unsqueeze(-1)
+    out.index_add_(0, tok, w * self.experts[e](x_flat[tok]))   <span class="c"># 선택된 토큰만 계산</span></pre>
+
+  <h3>② 부하분산 보조 손실 (Switch)</h3>
+  <p>그냥 두면 라우터가 한두 전문가에만 토큰을 몰아주고 나머지는 죽습니다(라우팅 붕괴). 이를 막는
+     보조 손실이 MoE 학습의 핵심 추가분입니다. 토큰을 전문가에 <b>골고루</b> 흩뿌리도록 압박합니다.</p>
+  <pre><span class="c"># P_i = 전문가 i로 가는 평균 라우터 확률,  f_i = 전문가 i가 선택된 슬롯 비율</span>
+P = router_probs.mean(dim=0)                          <span class="c"># (E,)</span>
+one_hot = F.one_hot(topk_idx, self.n_experts).float() <span class="c"># (N, k, E)</span>
+f = one_hot.sum(dim=(0,1)) / (N * self.top_k)         <span class="c"># (E,), 합=1</span>
+self.last_aux_loss = self.n_experts * torch.sum(f * P) <span class="c"># 균등 분배일 때 최소(=1)</span></pre>
+  <p class="mut" style="font-size:13.5px">초기화 직후엔 라우팅이 거의 균등이라 aux ≈ 1.0에서 시작합니다(스모크 테스트로 확인).
+     학습이 진행되며 전문화가 생겨도 이 손실이 완전한 붕괴는 막아줍니다.</p>
+
+  <h3>③ 블록 토글 · forward의 총손실</h3>
+  <pre><span class="c"># Block.__init__</span>
+self.ffn = MoEFFN(config) <span class="k">if</span> config.use_moe <span class="k">else</span> FFN(config)
+
+<span class="c"># GuppyLM.forward — 모든 MoE 레이어의 aux를 합산해 총손실에 더함</span>
+ce_loss  = F.cross_entropy(logits.view(-1, V), targets.view(-1), ignore_index=0)
+aux_loss = torch.stack([m.last_aux_loss <span class="k">for</span> m <span class="k">in</span> self.moe_layers]).mean()
+loss = ce_loss + self.config.aux_loss_coef * aux_loss   <span class="c"># dense면 aux=0</span></pre>
+
+  <div class="callout key"><b>관찰용 버퍼:</b> 각 <code>MoEFFN</code>은 마지막 <code>topk_idx</code>·<code>router_probs</code>를
+     <code>detach</code>해 보관합니다. 학습엔 안 쓰이지만, 평가 단계에서 "어떤 토큰이 어느 전문가로 갔는지"를
+     꺼내 보는 데 씁니다.</div>
+  <p class="pill">변경 요약: <span class="tag chg">수정</span> <code>model.py</code>(<code>Expert</code>, <code>MoEFFN</code>, 블록 토글, forward) · <code>config.py</code></p>
+</section>
+
+<!-- ───────────────────────── 학습 ───────────────────────── -->
+<section id="train">
+  <h2><span class="n">4</span> 학습 — CE + 보조손실</h2>
+  <p>학습 루프 자체(코사인 LR, AMP, 그래디언트 클리핑)는 그대로입니다. 달라지는 건 <b>손실 구성</b>과 <b>로깅</b>:
+     총손실에 부하분산 항이 더해지고, CE와 aux를 따로 찍어 라우팅이 잘 분산되는지 모니터링합니다.</p>
+  <pre><span class="c"># train.py — aux를 별도 기록</span>
+_, loss = model(x, y)        <span class="c"># loss 안에 이미 coef·aux 포함</span>
+aux_losses.append(model.last_aux_loss.item())
+...
+<span class="c"># 로그 한 줄 (예시)</span>
+  Step |         LR |      Train |      Aux |       Eval |     Time
+  2000 |   0.000291 |     1.8423 |    1.042 |     1.9006 |   142.0s</pre>
+  <table>
+    <tr><th>항목</th><th>의미</th><th>건강한 신호</th></tr>
+    <tr><td><code>Train</code></td><td>총손실(CE+coef·aux)</td><td>꾸준히 하락</td></tr>
+    <tr><td><code>Aux</code></td><td>부하분산 손실</td><td>1.0 부근 유지(전문가 균등 사용). 폭주하면 <code>aux_loss_coef</code>↑, 1.0에 딱 붙어 안 움직이면 전문화가 안 일어나는 것</td></tr>
+  </table>
+  <p class="pill">변경 요약: <span class="tag chg">수정</span> <code>train.py</code> · 하이퍼파라미터 <code>aux_loss_coef=0.01</code></p>
+</section>
+
+<!-- ───────────────────────── 평가 ───────────────────────── -->
+<section id="eval">
+  <h2><span class="n">5</span> 평가 — 전문가 분화 관찰</h2>
+  <p>밀집 모델 평가는 "응답이 캐릭터에 맞나"였습니다. MoE에선 질문이 하나 더 생깁니다 —
+     <b>전문가들이 정말 분화했는가, 한국어와 영어가 다른 전문가로 가는가?</b>
+     <code>eval_routing.py</code>가 한·영 프롬프트를 각각 한 번씩 forward하고, 모든 MoE 레이어에서
+     전문가 선택 횟수를 집계해 언어별 분포를 출력합니다.</p>
+
+  <pre><span class="c"># python -m guppylm route  (학습 후 출력 예시 — 실제 값은 학습마다 다름)</span>
+MoE routing analysis — 4 experts, top-2, 6 MoE layers
+
+[Korean]  (10 prompts)
+  expert 0: ████████████████········  64.8%  (812)
+  expert 1: ███·····················  12.1%  (152)
+  expert 2: ██████··················  19.0%  (238)
+  expert 3: █·······················   4.1%  (51)
+
+[English]  (10 prompts)
+  expert 0: ████····················  17.2%  (216)
+  expert 1: ███████████████·········  61.3%  (770)
+  expert 2: ████····················  16.0%  (201)
+  expert 3: ██······················   5.5%  (69)
+
+Language lean per expert (Korean share − English share):
+  expert 0: +47.6 pts  → Korean
+  expert 1: -49.2 pts  → English
+  expert 2:  +3.0 pts    (shared)
+  expert 3:  -1.4 pts    (shared)</pre>
+
+  <div class="callout key"><b>읽는 법:</b> 위 예시처럼 expert 0이 한국어로, expert 1이 영어로 쏠리면
+     "언어 분화가 일어났다"는 신호입니다. 하지만 <b>꼭 이렇게 깔끔하게 갈리지 않을 수도</b> 있습니다 —
+     실제 MoE는 의미 단위가 아니라 구두점·조사·토큰 ID 같은 표면 패턴으로 갈리는 경우가 많고, 그것도 정상입니다.
+     중요한 건 분포가 <b>한쪽 전문가로 완전히 붕괴하지 않는 것</b>입니다.</div>
+
+  <h3>한국어 홀드아웃 케이스</h3>
+  <p><code>eval_cases.py</code>에 영어 16종을 미러링한 한국어 케이스 8종을 추가했습니다.
+     키워드·말투로 한국어 응답 품질을 점검합니다.</p>
+  <pre><span class="c"># eval_cases.py · EVAL_CASES_KO</span>
+{<span class="k">"id"</span>:<span class="s">"ko_meaning"</span>, <span class="k">"lang"</span>:<span class="s">"ko"</span>, <span class="k">"prompt"</span>:<span class="s">"삶의 의미가 뭐야?"</span>,
+ <span class="k">"expect_keywords"</span>:[<span class="s">"밥"</span>,<span class="s">"물"</span>,<span class="s">"헤엄"</span>,<span class="s">"먹"</span>], <span class="k">"expect_style"</span>:<span class="s">"물고기다운 단순한 답"</span>}
+
+get_eval_cases(lang=<span class="s">"ko"</span>)   <span class="c"># 한국어 케이스만 필터</span></pre>
+  <p class="pill">변경 요약: <span class="tag new">신규</span> <code>eval_routing.py</code> · <span class="tag chg">수정</span> <code>eval_cases.py</code></p>
+</section>
+
+<!-- ───────────────────────── 실행 ───────────────────────── -->
+<section id="run">
+  <h2><span class="n">▶</span> 실행 과정 (원격 GPU)</h2>
+  <p>소스를 GPU 머신으로 옮긴 뒤, 아래 순서로 실행합니다. 전체가 단일 GPU에서 수 분 규모입니다.</p>
+
+  <h3>0. 환경 준비</h3>
+  <pre><span class="c"># 저장소 디렉터리로 이동 후</span>
+python -m venv .venv && source .venv/bin/activate
+pip install torch tokenizers          <span class="c"># requirements.txt에 명시 — 새 의존성 없음</span>
+nvidia-smi                            <span class="c"># GPU 인식 확인 (train.py가 cuda 자동 선택)</span></pre>
+
+  <h3>1. 데이터 생성 + 토크나이저 학습</h3>
+  <pre>python -m guppylm prepare
+<span class="c"># → data/train.jsonl, data/eval.jsonl (한·영 50:50, lang 필드)</span>
+<span class="c"># → data/tokenizer.json (vocab ≤ 8192)</span>
+<span class="c"># 출력에 'By language: en=…, ko=…' 와 한글 round-trip 테스트가 보이면 정상</span></pre>
+
+  <h3>2. MoE 모델 학습</h3>
+  <pre>python -m guppylm train
+<span class="c"># 헤더에 (MoE: True), 로그에 Aux 컬럼이 보여야 함</span>
+<span class="c"># → checkpoints/best_model.pt, checkpoints/config.json (use_moe/n_experts 등 포함)</span></pre>
+  <p class="mut" style="font-size:13.5px">하이퍼파라미터는 <code>config.py</code>의 <code>TrainConfig</code>(steps, batch 등)와
+     <code>GuppyConfig</code>(<code>n_experts</code>, <code>moe_top_k</code>, <code>aux_loss_coef</code>)에서 조정합니다.</p>
+
+  <h3>3. 라우팅 분석 (MoE 하이라이트)</h3>
+  <pre>python -m guppylm route
+<span class="c"># 한·영 전문가 분포 + 언어 lean + 한·영 샘플 응답 출력</span></pre>
+
+  <h3>4. 대화로 확인</h3>
+  <pre>python -m guppylm chat -p <span class="s">"안녕 구피"</span>
+python -m guppylm chat -p <span class="s">"hi guppy"</span>
+python -m guppylm chat            <span class="c"># 대화형</span></pre>
+
+  <h3>(선택) dense와 비교</h3>
+  <pre><span class="c"># config.py에서 use_moe=False로 두고 같은 데이터로 학습 → route는 'dense' 안내 출력</span>
+<span class="c"># 같은 데이터·스텝에서 MoE와 손실/응답 품질을 비교할 수 있음</span></pre>
+
+  <div class="callout"><b>체크리스트</b>
+    <ul style="margin:6px 0">
+      <li><code>prepare</code> 출력에 <code>en=</code>/<code>ko=</code> 양쪽 카운트가 있다</li>
+      <li><code>train</code> 헤더가 <code>(MoE: True)</code>, <code>Aux</code> 값이 1.0 근방에서 시작</li>
+      <li><code>route</code>가 4개 전문가 분포를 출력하고 한 전문가로 100% 쏠리지 않는다</li>
+      <li><code>chat</code>이 한국어 입력엔 한국어로, 영어 입력엔 영어로 답한다</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ───────────────────────── FAQ ───────────────────────── -->
+<section id="faq">
+  <h2><span class="n">✦</span> 설계 Q&amp;A</h2>
+  <h3>왜 학습형 라우팅(역할 미배정)인가?</h3>
+  <p>실제 LLM의 MoE(Mixtral·Switch·DeepSeek)와 동일하기 때문입니다. 역할을 사람이 정하는 하드 라우팅은
+     직관적이지만 현대 MoE와는 거리가 있습니다. 학습형은 전문화가 창발하므로 "한국어가 어디로 가나"를
+     <b>관찰</b>하는 재미가 생깁니다.</p>
+  <h3>왜 전문가 4개, top-2인가?</h3>
+  <p>약 9M~21M 규모에 적당합니다. 8개는 전문가당 데이터가 부족해 과소학습되기 쉽고, 2개·top-1은 분화 관찰의
+     재미가 적습니다. top-2는 매 토큰이 항상 2개 전문가에 학습 신호를 줘 라우팅이 안정적으로 배워집니다.</p>
+  <h3>전문화가 언어별로 안 갈리면 실패인가?</h3>
+  <p>아닙니다. 실제 MoE도 의미보다 표면 패턴(조사·구두점·토큰 ID)으로 갈리는 경우가 많습니다. 평가의 목적은
+     "깔끔한 언어 분화 강제"가 아니라 <b>라우팅이 붕괴하지 않고 용량을 실제로 쓰는지</b> 확인하는 것입니다.</p>
+  <h3>dense로 되돌리려면?</h3>
+  <p><code>config.py</code>에서 <code>use_moe=False</code>. 모델은 기존 단일 FFN으로 동작하고 aux 손실은 0이 됩니다.
+     같은 데이터로 학습해 MoE와 직접 비교할 수 있습니다.</p>
+</section>
+
+</div>
+
+<footer><div class="wrap">
+  GuppyLM 한·영 MoE 전환 · 설계 스펙: <code>docs/superpowers/specs/2026-06-29-moe-korean-guppy-design.md</code> ·
+  소스: <code>guppylm/</code> · 본 문서: <code>docs/moe-korean.html</code>
+</div></footer>
+
+</body>
+</html>

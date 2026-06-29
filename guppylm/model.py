@@ -3,6 +3,10 @@ GuppyLM — a tiny fish brain.
 
 Vanilla transformer: multi-head attention, ReLU FFN, LayerNorm, learned positional embeddings.
 No GQA, no SwiGLU, no parallel residual, no RoPE. As simple as it gets.
+
+Optionally the dense FFN in every block is replaced by a Mixture-of-Experts (MoE) layer:
+a small router picks the top-k of N expert FFNs per token (Switch/Mixtral style), with a
+load-balancing auxiliary loss so experts don't collapse onto each other.
 """
 
 import math
@@ -35,6 +39,8 @@ class Attention(nn.Module):
 
 
 class FFN(nn.Module):
+    """Dense feed-forward: one MLP every token goes through."""
+
     def __init__(self, config):
         super().__init__()
         self.up = nn.Linear(config.d_model, config.ffn_hidden)
@@ -45,13 +51,88 @@ class FFN(nn.Module):
         return self.dropout(self.down(F.relu(self.up(x))))
 
 
+class Expert(nn.Module):
+    """A single expert — same shape as the dense FFN. There are n_experts of these per MoE layer."""
+
+    def __init__(self, config):
+        super().__init__()
+        self.up = nn.Linear(config.d_model, config.ffn_hidden)
+        self.down = nn.Linear(config.ffn_hidden, config.d_model)
+
+    def forward(self, x):
+        return self.down(F.relu(self.up(x)))
+
+
+class MoEFFN(nn.Module):
+    """Mixture-of-Experts feed-forward.
+
+    A router scores all n_experts for each token, keeps the top_k, and returns the
+    weighted sum of those experts' outputs. Only top_k of n_experts actually run per
+    token, so capacity grows with n_experts while compute grows only with top_k.
+
+    Learned routing: experts are NOT assigned roles. The router learns the routing and
+    any specialisation (e.g. one expert leaning Korean) emerges during training.
+
+    Also computes a Switch-style load-balancing auxiliary loss and stashes the last
+    routing decision (for inspection in eval_routing.py).
+    """
+
+    def __init__(self, config):
+        super().__init__()
+        self.n_experts = config.n_experts
+        self.top_k = config.moe_top_k
+        self.router = nn.Linear(config.d_model, config.n_experts, bias=False)
+        self.experts = nn.ModuleList([Expert(config) for _ in range(config.n_experts)])
+        self.dropout = nn.Dropout(config.dropout)
+
+        # Populated each forward — read by training (aux loss) and eval_routing (analysis).
+        self.last_aux_loss = None      # scalar tensor, load-balancing penalty
+        self.last_topk_idx = None      # (N, top_k) long — which experts each token chose
+        self.last_router_probs = None  # (N, n_experts) float — full softmax distribution
+
+    def forward(self, x):
+        B, T, C = x.shape
+        x_flat = x.reshape(-1, C)                      # (N, C), N = B*T
+
+        router_logits = self.router(x_flat)            # (N, E)
+        router_probs = F.softmax(router_logits, dim=-1)
+
+        # Pick the top_k experts per token and renormalise their weights to sum to 1.
+        topk_probs, topk_idx = torch.topk(router_probs, self.top_k, dim=-1)  # (N, k)
+        topk_probs = topk_probs / (topk_probs.sum(dim=-1, keepdim=True) + 1e-9)
+
+        # Dispatch: loop over the (few) experts, run each only on its assigned tokens.
+        out = torch.zeros_like(x_flat)
+        for e in range(self.n_experts):
+            sel = (topk_idx == e)                       # (N, k) bool
+            if not sel.any():
+                continue
+            tok, slot = sel.nonzero(as_tuple=True)      # tokens routed to expert e
+            w = topk_probs[tok, slot].unsqueeze(-1)     # (n_e, 1) gate weights
+            out.index_add_(0, tok, w * self.experts[e](x_flat[tok]))
+        out = self.dropout(out).reshape(B, T, C)
+
+        # ── Switch load-balancing aux loss ──────────────────────────────────
+        # P_i = mean router prob to expert i; f_i = fraction of dispatch slots to expert i.
+        # aux = E * Σ f_i·P_i  (minimised, == 1, when load is uniform).
+        N = x_flat.shape[0]
+        P = router_probs.mean(dim=0)                                  # (E,)
+        one_hot = F.one_hot(topk_idx, self.n_experts).float()        # (N, k, E)
+        f = one_hot.sum(dim=(0, 1)) / (N * self.top_k)               # (E,), sums to 1
+        self.last_aux_loss = self.n_experts * torch.sum(f * P)
+
+        self.last_topk_idx = topk_idx.detach()
+        self.last_router_probs = router_probs.detach()
+        return out
+
+
 class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.norm1 = nn.LayerNorm(config.d_model)
         self.attn = Attention(config)
         self.norm2 = nn.LayerNorm(config.d_model)
-        self.ffn = FFN(config)
+        self.ffn = MoEFFN(config) if config.use_moe else FFN(config)
 
     def forward(self, x, mask=None):
         x = x + self.attn(self.norm1(x), mask)
@@ -74,6 +155,15 @@ class GuppyLM(nn.Module):
 
         self.apply(self._init_weights)
 
+        # Last-step loss breakdown (filled in forward, read by the training loop for logging).
+        self.last_ce_loss = None
+        self.last_aux_loss = None
+
+    @property
+    def moe_layers(self):
+        """All MoE feed-forward layers (empty when use_moe=False)."""
+        return [m for m in self.modules() if isinstance(m, MoEFFN)]
+
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
             nn.init.normal_(m.weight, mean=0.0, std=0.02)
@@ -95,11 +185,20 @@ class GuppyLM(nn.Module):
 
         loss = None
         if targets is not None:
-            loss = F.cross_entropy(
+            ce_loss = F.cross_entropy(
                 logits.view(-1, self.config.vocab_size),
                 targets.view(-1),
                 ignore_index=0,
             )
+            # Sum the load-balancing penalty across every MoE layer (0 when dense).
+            moe = self.moe_layers
+            if moe:
+                aux_loss = torch.stack([m.last_aux_loss for m in moe]).mean()
+            else:
+                aux_loss = torch.zeros((), device=logits.device)
+            self.last_ce_loss = ce_loss.detach()
+            self.last_aux_loss = aux_loss.detach()
+            loss = ce_loss + self.config.aux_loss_coef * aux_loss
 
         return logits, loss
 
@@ -121,9 +220,23 @@ class GuppyLM(nn.Module):
         return idx, []
 
     def param_count(self):
+        """Returns (total, active) param counts.
+
+        `active` is the params a single token actually flows through: with top-k MoE the
+        experts it doesn't pick don't run, so they don't count toward per-token compute.
+        For a dense model active == total.
+        """
         total = sum(p.numel() for p in self.parameters())
-        return total, 0
+        inactive = 0
+        for m in self.moe_layers:
+            per_expert = sum(p.numel() for p in m.experts[0].parameters())
+            inactive += per_expert * (m.n_experts - m.top_k)
+        active = total - inactive
+        return total, active
 
     def param_summary(self):
-        total, _ = self.param_count()
-        return f"GuppyLM: {total:,} params ({total/1e6:.1f}M)"
+        total, active = self.param_count()
+        if self.config.use_moe:
+            return (f"GuppyLM (MoE {self.config.n_experts}x top-{self.config.moe_top_k}): "
+                    f"{total/1e6:.1f}M total / {active/1e6:.1f}M active per token")
+        return f"GuppyLM (dense): {total:,} params ({total/1e6:.1f}M)"
