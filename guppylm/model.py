@@ -67,8 +67,16 @@ class MoEFFN(nn.Module):
     """Mixture-of-Experts feed-forward.
 
     A router scores all n_experts for each token, keeps the top_k, and returns the
-    weighted sum of those experts' outputs. Only top_k of n_experts actually run per
-    token, so capacity grows with n_experts while compute grows only with top_k.
+    weighted sum of those experts' outputs — each token's output depends only on its
+    top_k experts (the others get gate weight 0).
+
+    Implementation note: experts are applied DENSELY (every expert runs on every token)
+    and then masked by the router gate, instead of gathering each expert's assigned
+    tokens. The two are mathematically identical, but the dense form has no
+    data-dependent control flow (no value-dependent `if`/`nonzero`), so the model
+    exports cleanly to ONNX and runs in the browser via onnxruntime-web. Compute here
+    grows with n_experts rather than top_k — negligible at this size, and replaceable
+    with capacity-based routing at scale.
 
     Learned routing: experts are NOT assigned roles. The router learns the routing and
     any specialisation (e.g. one expert leaning Korean) emerges during training.
@@ -101,15 +109,15 @@ class MoEFFN(nn.Module):
         topk_probs, topk_idx = torch.topk(router_probs, self.top_k, dim=-1)  # (N, k)
         topk_probs = topk_probs / (topk_probs.sum(dim=-1, keepdim=True) + 1e-9)
 
-        # Dispatch: loop over the (few) experts, run each only on its assigned tokens.
+        # Dispatch — dense + masked so the graph has no data-dependent control flow and the
+        # model exports to ONNX. Scatter the renormalised top-k weights into a full (N, E) gate
+        # (0 for experts a token didn't pick), run every expert on every token, and combine by
+        # the gate. Non-routed experts contribute 0, so the result is identical to gathering only
+        # each expert's assigned tokens — only the (wasted) compute differs.
+        gate = torch.zeros_like(router_probs).scatter(1, topk_idx, topk_probs)  # (N, E)
         out = torch.zeros_like(x_flat)
         for e in range(self.n_experts):
-            sel = (topk_idx == e)                       # (N, k) bool
-            if not sel.any():
-                continue
-            tok, slot = sel.nonzero(as_tuple=True)      # tokens routed to expert e
-            w = topk_probs[tok, slot].unsqueeze(-1)     # (n_e, 1) gate weights
-            out.index_add_(0, tok, w * self.experts[e](x_flat[tok]))
+            out = out + gate[:, e:e + 1] * self.experts[e](x_flat)
         out = self.dropout(out).reshape(B, T, C)
 
         # ── Switch load-balancing aux loss ──────────────────────────────────
