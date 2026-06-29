@@ -99,6 +99,7 @@
   <a href="#train">④ 학습</a>
   <a href="#eval">⑤ 평가</a>
   <a href="#run">실행 과정</a>
+  <a href="#serve">브라우저 서빙</a>
   <a href="#faq">설계 Q&amp;A</a>
 </div></nav>
 
@@ -913,6 +914,67 @@ python -m guppylm chat            <span class="c"># 대화형</span></pre>
       <li><code>chat</code>이 한국어 입력엔 한국어로, 영어 입력엔 영어로 답한다</li>
     </ul>
   </div>
+</section>
+
+<!-- ───────────────────────── FAQ ───────────────────────── -->
+<section id="serve">
+  <h2><span class="n">⬢</span> 브라우저 안에서 서빙 — WASM</h2>
+  <p>학습은 GPU 서버에서 끝났습니다. 그런데 "누구나 링크 하나로 모델과 대화"하게 하려면 보통 추론 서버·GPU·API 키가
+     필요하죠. GuppyLM은 그게 <b>전부 0</b>입니다. 모델이 방문자의 브라우저 <b>안에서</b> 직접 돌아가거든요. 비결은
+     <b>WebAssembly(WASM)</b>입니다.</p>
+
+  <h3>WebAssembly란?</h3>
+  <p>브라우저가 <b>거의 네이티브 속도로 실행</b>하는 저수준 바이너리 코드 형식입니다. 평소 웹은 JavaScript로 돌아가지만,
+     JS는 앱 로직엔 좋아도 <b>행렬 곱 같은 무거운 계산엔 느립니다</b>. 그래서 C/C++/Rust로 짠 빠른 계산 코드를
+     <code>.wasm</code>으로 컴파일하면, 크롬·파이어폭스·사파리에 <b>내장된 WASM 엔진</b>이 그대로 실행합니다. 설치도,
+     플러그인도, 서버도 없습니다.</p>
+  <div class="callout"><b>비유</b> — JS는 "통역사", WASM은 "현지어를 그대로 말하는 사람". 무거운 계산은 WASM에게 맡깁니다.</div>
+
+  <h3>onnxruntime-web = 서버 엔진을 브라우저로</h3>
+  <p>신경망 추론은 결국 <b>대량의 행렬 곱셈</b>입니다. 원래 ONNX Runtime이라는 추론 엔진은 C++로 짜여 서버에서 도는데,
+     이것을 <b>WASM으로 컴파일한 것이 <code>onnxruntime-web</code></b>입니다. 즉 <b>서버에서 돌던 바로 그 추론 엔진이,
+     똑같이 방문자의 브라우저 탭 안에서 돕니다.</b></p>
+
+  <div class="flow">
+    <div class="step"><div class="s-n">①</div><div class="s-t">fetch</div><div class="s-d">model.onnx<br/>가중치+그래프</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="s-n">②</div><div class="s-t">fetch</div><div class="s-d">tokenizer.json<br/>글자↔토큰ID</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="s-n">③</div><div class="s-t">WASM forward</div><div class="s-d">CPU에서<br/>logits 계산</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="s-n">④</div><div class="s-t">생성 루프</div><div class="s-d">다음 토큰<br/>이어붙이기 반복</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="s-n">⑤</div><div class="s-t">decode</div><div class="s-d">토큰ID→글자<br/>화면 출력</div></div>
+  </div>
+
+  <pre><span class="c">// index.html / playground.html 핵심 — 전부 브라우저 안에서</span>
+const ort = await import("…/onnxruntime-web/ort.min.mjs");
+const buf = await fetch("model.onnx").then(r =&gt; r.arrayBuffer());
+const session = await ort.InferenceSession.create(buf, { executionProviders: ["wasm"] });
+<span class="c">// "hi guppy" → 토큰ID → forward → 다음 토큰 → 반복 → 디코드</span></pre>
+
+  <h3>장점과 한계</h3>
+  <table>
+    <tr><th>장점</th><th>한계</th></tr>
+    <tr>
+      <td><b>서버 0원</b> — 정적 파일(<code>.html/.onnx/.json</code>)만 GitHub Pages에 올리면 끝</td>
+      <td>방문자 <b>CPU 성능</b>에 묶임 → 소형 모델(~10M)만 현실적</td>
+    </tr>
+    <tr>
+      <td><b>프라이버시</b> — 입력이 기기 밖으로 안 나감, API 키 불필요</td>
+      <td>첫 로드 때 모델+WASM <b>다운로드</b> 필요</td>
+    </tr>
+    <tr>
+      <td><b>오프라인</b> — 한 번 로드하면 인터넷 없이도 동작</td>
+      <td>GPU보다 <b>느림</b> (7B 같은 대형 모델은 무리)</td>
+    </tr>
+  </table>
+
+  <div class="callout"><b>직접 해보기</b> — <a href="playground.html">Playground</a>에서 Dense·MoE 챗봇과 나란히 비교를
+    한 페이지에서 볼 수 있습니다. MoE 챗봇을 켜려면 학습한 체크포인트를 브라우저용으로 변환하세요:
+    <pre style="margin-top:8px"><span class="c"># torch가 있는 서버에서 (dense는 이미 export 되어 있음)</span>
+python tools/export_onnx.py --output docs/model_moe.onnx
+<span class="c"># → docs/model_moe.onnx + docs/tokenizer_moe.json 생성 → playground.html의 MoE 탭이 켜짐</span></pre></div>
 </section>
 
 <!-- ───────────────────────── FAQ ───────────────────────── -->

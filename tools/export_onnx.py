@@ -36,7 +36,16 @@ def load_env():
                     os.environ.setdefault(key.strip(), val.strip())
 
 
-def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, push=False):
+def _derive_tokenizer_name(output_path):
+    """docs/model.onnx -> tokenizer.json ; docs/model_moe.onnx -> tokenizer_moe.json"""
+    base = os.path.basename(output_path)
+    stem = base[:-len(".onnx")] if base.endswith(".onnx") else os.path.splitext(base)[0]
+    suffix = stem[len("model"):] if stem.startswith("model") else "_" + stem
+    return f"tokenizer{suffix}.json"
+
+
+def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, push=False,
+                tokenizer_out=None):
     import shutil
 
     # Load checkpoint
@@ -115,8 +124,10 @@ def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, pus
         print(f"Quantized {output_path} ({q_size_mb:.1f} MB, uint8)")
         os.remove(fp32_path)
 
-    # Copy tokenizer alongside the ONNX model (needed for web/ GitHub Pages demo)
-    tok_dest = os.path.join(out_dir, "tokenizer.json")
+    # Copy tokenizer alongside the ONNX model (needed for web/ GitHub Pages demo).
+    # Name it to match the model: model.onnx -> tokenizer.json, model_moe.onnx -> tokenizer_moe.json
+    tok_name = tokenizer_out or _derive_tokenizer_name(output_path)
+    tok_dest = os.path.join(out_dir, tok_name)
     if os.path.abspath(tokenizer_path) != os.path.abspath(tok_dest):
         shutil.copy2(tokenizer_path, tok_dest)
         print(f"Copied tokenizer to {tok_dest}")
@@ -132,26 +143,32 @@ def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, pus
 
         from huggingface_hub import HfApi
         api = HfApi(token=token)
+        repo_name = os.path.basename(output_path)
         api.upload_file(
             path_or_fileobj=output_path,
-            path_in_repo="model.onnx",
+            path_in_repo=repo_name,
             repo_id=repo,
             repo_type="model",
         )
-        print(f"Uploaded model.onnx to https://huggingface.co/{repo}")
+        print(f"Uploaded {repo_name} to https://huggingface.co/{repo}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Export GuppyLM to ONNX")
     parser.add_argument("--checkpoint", default="checkpoints/best_model.pt")
     parser.add_argument("--tokenizer", default="data/tokenizer.json")
-    parser.add_argument("--output", default="docs/model.onnx")
+    parser.add_argument("--output", default="docs/model.onnx",
+                        help="ONNX output path. e.g. docs/model.onnx (dense) or docs/model_moe.onnx (MoE)")
+    parser.add_argument("--tokenizer-out", default=None,
+                        help="Tokenizer copy filename. Default derived from --output "
+                             "(model.onnx->tokenizer.json, model_moe.onnx->tokenizer_moe.json)")
     parser.add_argument("--no-quantize", action="store_true", help="Skip uint8 quantization")
     parser.add_argument("--push", action="store_true", help="Upload to HuggingFace repo")
     args = parser.parse_args()
 
     export_onnx(args.checkpoint, args.tokenizer, args.output,
-                quantize=not args.no_quantize, push=args.push)
+                quantize=not args.no_quantize, push=args.push,
+                tokenizer_out=args.tokenizer_out)
 
 
 if __name__ == "__main__":

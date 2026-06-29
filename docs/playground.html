@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GuppyLM Playground — Dense · MoE · 아키텍처</title>
+<style>
+  /* ── Light theme (default) ── */
+  :root, [data-theme="light"] {
+    --bg: #f5f7fa; --surface: #ffffff; --border: #e0e4ea;
+    --text: #1a1a2e; --dim: #6b7280; --accent: #0891b2;
+    --bubble-user: #e0f2fe; --bubble-fish: #ffffff;
+    --logo-shadow: rgba(0,0,0,0.08);
+  }
+  /* ── Dark theme ── */
+  [data-theme="dark"] {
+    --bg: #0a1628; --surface: #112240; --border: #1e3a5f;
+    --text: #ccd6f6; --dim: #8892b0; --accent: #64ffda;
+    --bubble-user: #1e3a5f; --bubble-fish: #0d2137;
+    --logo-shadow: rgba(0,0,0,0.3);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column; height: 100vh;
+    transition: background 0.3s, color 0.3s;
+  }
+
+  /* ── Header ── */
+  header {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  header img.logo { width: 34px; height: 34px; object-fit: contain; }
+  header h1 { font-size: 16px; font-weight: 600; }
+  header .tag {
+    font-size: 11px; color: var(--accent); border: 1px solid var(--accent);
+    padding: 2px 8px; border-radius: 12px;
+  }
+  header .spacer { margin-left: auto; }
+  header .status { font-size: 12px; color: var(--dim); }
+  #theme-toggle {
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 8px; cursor: pointer; font-size: 16px; line-height: 1; color: var(--text);
+  }
+
+  /* ── Tab bar ── */
+  #tabs {
+    display: flex; gap: 4px; padding: 8px 20px 0; border-bottom: 1px solid var(--border);
+    flex-shrink: 0; overflow-x: auto;
+  }
+  .tab {
+    background: none; border: 1px solid transparent; border-bottom: none;
+    border-radius: 8px 8px 0 0; padding: 9px 16px; cursor: pointer;
+    font-family: inherit; font-size: 13px; color: var(--dim); white-space: nowrap;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--accent); border-color: var(--border); background: var(--surface);
+    font-weight: 600; margin-bottom: -1px;
+  }
+  .tab .sub { font-size: 10px; color: var(--dim); margin-left: 4px; }
+
+  /* ── Tab panels ── */
+  .panel { flex: 1; display: none; flex-direction: column; min-height: 0; }
+  .panel.active { display: flex; }
+
+  /* ── Chat (used by single-model panels) ── */
+  .chat {
+    flex: 1; overflow-y: auto; padding: 20px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .msg {
+    max-width: 80%; padding: 10px 14px; border-radius: 12px;
+    font-size: 14px; line-height: 1.5; display: flex; gap: 10px; align-items: flex-start;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .msg.user {
+    align-self: flex-end; background: var(--bubble-user);
+    border-bottom-right-radius: 4px; flex-direction: row-reverse;
+  }
+  .msg.fish {
+    align-self: flex-start; background: var(--bubble-fish);
+    border: 1px solid var(--border); border-bottom-left-radius: 4px;
+  }
+  .msg .emoji { font-size: 20px; flex-shrink: 0; line-height: 1; }
+  .msg .body { display: flex; flex-direction: column; }
+  .msg .label { font-size: 11px; color: var(--dim); margin-bottom: 2px; }
+  .msg.user .label { text-align: right; }
+  .msg.fish .label { color: var(--accent); }
+  .typing { color: var(--dim); font-style: italic; font-size: 13px; padding: 4px 14px; }
+
+  /* ── Sample prompts ── */
+  .samples {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; flex: 1; gap: 16px; padding: 40px 20px; text-align: center;
+  }
+  .samples img { width: 64px; height: 64px; object-fit: contain; opacity: 0.85; }
+  .samples .title { font-size: 15px; font-weight: 600; }
+  .samples .subtitle { font-size: 12px; color: var(--dim); max-width: 420px; }
+  .samples .pills { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 500px; }
+  .pill {
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 8px 14px; border-radius: 20px; font-size: 13px;
+    cursor: pointer; transition: border-color 0.2s; font-family: inherit; color: var(--text);
+  }
+  .pill:hover { border-color: var(--accent); }
+
+  /* ── Input row ── */
+  .input-row {
+    padding: 14px 20px; border-top: 1px solid var(--border);
+    display: flex; gap: 10px; flex-shrink: 0;
+  }
+  .input-row input {
+    flex: 1; background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); padding: 10px 14px; border-radius: 8px;
+    font-family: inherit; font-size: 14px; outline: none;
+  }
+  .input-row input:focus { border-color: var(--accent); }
+  .input-row input::placeholder { color: var(--dim); }
+  .input-row button.send {
+    background: var(--accent); color: white; border: none;
+    padding: 10px 20px; border-radius: 8px; font-family: inherit;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  [data-theme="dark"] .input-row button.send { color: #0a1628; }
+  .input-row button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Loading / degrade states ── */
+  .state {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; flex: 1; gap: 16px; color: var(--dim);
+    padding: 40px 20px; text-align: center;
+  }
+  .state img { width: 72px; height: 72px; object-fit: contain; opacity: 0.8; }
+  .spinner {
+    width: 30px; height: 30px; border: 3px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .state .cmd {
+    text-align: left; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px; font-size: 12px; line-height: 1.7;
+    color: var(--text); max-width: 560px; width: 100%; overflow-x: auto; white-space: pre;
+  }
+  .state .cmd .c { color: var(--dim); }
+  .state strong { color: var(--text); }
+
+  /* ── Compare tab ── */
+  .compare-cols { flex: 1; display: flex; min-height: 0; }
+  .compare-col { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .compare-col + .compare-col { border-left: 1px solid var(--border); }
+  .compare-col .col-head {
+    padding: 8px 16px; font-size: 12px; font-weight: 600; color: var(--accent);
+    border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 6px;
+  }
+  .compare-col .col-head .muted { color: var(--dim); font-weight: 400; }
+  @media (max-width: 640px) {
+    .compare-cols { flex-direction: column; }
+    .compare-col + .compare-col { border-left: none; border-top: 1px solid var(--border); }
+  }
+
+  /* ── Architecture iframe ── */
+  .arch-bar {
+    padding: 8px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--dim); flex-shrink: 0;
+  }
+  .arch-bar a { color: var(--accent); text-decoration: none; }
+  .arch-bar a:hover { text-decoration: underline; }
+  iframe.arch { flex: 1; border: none; width: 100%; background: var(--surface); }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <img class="logo" src="guppy.png" alt="Guppy" />
+  <h1>GuppyLM Playground</h1>
+  <span class="tag">브라우저 · WASM</span>
+  <span class="spacer"></span>
+  <span class="status" id="status">로컬 실행</span>
+  <button id="theme-toggle" title="다크/라이트 전환">&#9790;</button>
+</header>
+
+<div id="tabs">
+  <button class="tab active" data-tab="dense">&#x1F420; Dense<span class="sub">영어</span></button>
+  <button class="tab" data-tab="moe">&#x1F9E0; MoE<span class="sub">한·영</span></button>
+  <button class="tab" data-tab="compare">&#x2696;&#xFE0F; 비교</button>
+  <button class="tab" data-tab="arch">&#x1F4D0; 아키텍처</button>
+</div>
+
+<!-- Single-model chat panels are built by JS into these containers -->
+<div class="panel active" id="panel-dense" data-model="dense"></div>
+<div class="panel" id="panel-moe" data-model="moe"></div>
+
+<!-- Compare panel -->
+<div class="panel" id="panel-compare">
+  <div class="compare-cols">
+    <div class="compare-col">
+      <div class="col-head">&#x1F420; Dense <span class="muted">· 영어</span></div>
+      <div class="chat" id="cmp-chat-dense"></div>
+    </div>
+    <div class="compare-col">
+      <div class="col-head">&#x1F9E0; MoE <span class="muted">· 한·영</span></div>
+      <div class="chat" id="cmp-chat-moe"></div>
+    </div>
+  </div>
+  <div class="input-row">
+    <input type="text" id="cmp-input" placeholder="같은 질문을 두 모델에 동시에 보내기..." autocomplete="off" />
+    <button class="send" id="cmp-send">전송</button>
+  </div>
+</div>
+
+<!-- Architecture panel -->
+<div class="panel" id="panel-arch">
+  <div class="arch-bar">
+    <span>MoE 아키텍처 가이드 (한·영 전환 설계)</span>
+    <a href="moe-korean.html" target="_blank" rel="noopener">새 탭에서 열기 &#x2197;</a>
+  </div>
+  <iframe class="arch" src="moe-korean.html" title="MoE 아키텍처 가이드"></iframe>
+</div>
+
+<script type="module">
+// ── Shared model config (same for every GuppyLM variant) ────────────
+const SHARED = { max_seq_len: 128, pad_id: 0, bos_id: 1, eos_id: 2 };
+const GEN = { temperature: 0.7, top_k: 50, max_tokens: 32 };
+
+// ── Model registry — each entry = one ONNX model + its tokenizer ────
+const MODELS = {
+  dense: {
+    label: "Dense", emoji: "\u{1F420}", lang: "영어",
+    model: "model.onnx", tokenizer: "tokenizer.json", vocab_size: 4096,
+    subtitle: "MoE 없는 클래식 9M 모델 · 영어로 대화합니다",
+    placeholder: "say something to guppy...",
+    samples: ["hi guppy", "are you hungry", "do you like bubbles", "tell me a joke"],
+  },
+  moe: {
+    label: "MoE", emoji: "\u{1F9E0}", lang: "한·영",
+    model: "model_moe.onnx", tokenizer: "tokenizer_moe.json", vocab_size: 8192,
+    subtitle: "전문가 4개 top-2 MoE 모델 · 한국어와 영어로 대화합니다",
+    placeholder: "구피에게 말을 걸어보세요...",
+    samples: ["안녕 구피", "배고프니?", "오늘 기분 어때", "hi guppy"],
+  },
+};
+
+// ── ONNX Runtime (loaded once, shared by all panels) ────────────────
+const ORT_CDN = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/";
+let ortPromise = import(`${ORT_CDN}ort.min.mjs`).then((ort) => {
+  ort.env.wasm.wasmPaths = ORT_CDN;
+  return ort;
+});
+
+// ── ChatEngine — owns one model's session + tokenizer ───────────────
+class ChatEngine {
+  constructor(cfg) { this.cfg = cfg; this.session = null; this.tokenizer = null; this._loading = null; }
+
+  load() { if (!this._loading) this._loading = this._load(); return this._loading; }
+
+  async _load() {
+    const ort = await ortPromise;
+    const tokResp = await fetch(this.cfg.tokenizer);
+    if (!tokResp.ok) throw new Error(`tokenizer not found (${this.cfg.tokenizer})`);
+    this.tokenizer = buildTokenizer(await tokResp.json());
+
+    const modelResp = await fetch(this.cfg.model);
+    if (!modelResp.ok) throw new Error(`model not found (${this.cfg.model})`);
+    const buf = await modelResp.arrayBuffer();
+    this.session = await ort.InferenceSession.create(buf, { executionProviders: ["wasm"] });
+  }
+
+  async reply(userText) {
+    const prompt = `<|im_start|>user\n${userText}<|im_end|>\n<|im_start|>assistant\n`;
+    const inputIds = this.tokenizer.encode(prompt);
+    const outIds = await generate(this.session, this.cfg.vocab_size, inputIds);
+    let reply = this.tokenizer.decode(outIds).trim();
+    if (reply.includes("<|im_end|>")) reply = reply.split("<|im_end|>")[0];
+    if (reply.includes("<|im_start|>")) reply = reply.split("<|im_start|>")[0];
+    return reply.trim() || "blub.";
+  }
+}
+
+const engines = {
+  dense: new ChatEngine(MODELS.dense),
+  moe: new ChatEngine(MODELS.moe),
+};
+
+// ── Autoregressive generation (parametrized by session + vocab) ─────
+async function generate(session, vocabSize, inputIds) {
+  const ort = await ortPromise;
+  let ids = inputIds.slice();
+
+  for (let i = 0; i < GEN.max_tokens; i++) {
+    const seq = ids.slice(-SHARED.max_seq_len);
+    const tensor = new ort.Tensor("int64", BigInt64Array.from(seq.map(BigInt)), [1, seq.length]);
+    const out = await session.run({ input_ids: tensor });
+    const logits = out.logits.data;
+
+    const offset = (seq.length - 1) * vocabSize;
+    const last = new Float32Array(vocabSize);
+    for (let v = 0; v < vocabSize; v++) last[v] = logits[offset + v];
+
+    if (GEN.temperature !== 1.0)
+      for (let v = 0; v < vocabSize; v++) last[v] /= GEN.temperature;
+
+    if (GEN.top_k > 0) {
+      const sorted = [...last].sort((a, b) => b - a);
+      const cutoff = sorted[Math.min(GEN.top_k, sorted.length) - 1];
+      for (let v = 0; v < vocabSize; v++) if (last[v] < cutoff) last[v] = -Infinity;
+    }
+
+    const maxVal = Math.max(...last.filter(v => v !== -Infinity));
+    let sumExp = 0;
+    const probs = new Float32Array(vocabSize);
+    for (let v = 0; v < vocabSize; v++) { probs[v] = Math.exp(last[v] - maxVal); sumExp += probs[v]; }
+    for (let v = 0; v < vocabSize; v++) probs[v] /= sumExp;
+
+    let r = Math.random(), acc = 0, nextId = 0;
+    for (let v = 0; v < vocabSize; v++) { acc += probs[v]; if (acc >= r) { nextId = v; break; } }
+
+    ids.push(nextId);
+    if (nextId === SHARED.eos_id) break;
+  }
+  return ids.slice(inputIds.length);
+}
+
+// ── ByteLevel BPE tokenizer (JS port of HuggingFace tokenizers) ─────
+function buildTokenizer(json) {
+  const vocab = json.model.vocab;
+  const merges = json.model.merges;
+  const added = {};
+  for (const t of json.added_tokens) added[t.content] = t.id;
+
+  const id2token = {};
+  for (const [tok, id] of Object.entries(vocab)) id2token[id] = tok;
+  for (const [tok, id] of Object.entries(added)) id2token[id] = tok;
+
+  const byte2char = {}, char2byte = {};
+  const ranges = [[33, 126], [161, 172], [174, 255]];
+  const direct = new Set();
+  for (const [lo, hi] of ranges) for (let b = lo; b <= hi; b++) direct.add(b);
+  let n = 0;
+  for (let b = 0; b < 256; b++) {
+    if (direct.has(b)) byte2char[b] = String.fromCharCode(b);
+    else { byte2char[b] = String.fromCharCode(256 + n); n++; }
+  }
+  for (const [b, c] of Object.entries(byte2char)) char2byte[c] = parseInt(b);
+
+  const mergeRank = {};
+  for (let i = 0; i < merges.length; i++) {
+    const key = Array.isArray(merges[i]) ? merges[i].join(" ") : merges[i];
+    mergeRank[key] = i;
+  }
+
+  const bytesToTokenStr = (bytes) => Array.from(bytes).map(b => byte2char[b]).join("");
+  const tokenStrToBytes = (s) => Uint8Array.from([...s].map(c => char2byte[c] ?? c.charCodeAt(0)));
+
+  function bpe(word) {
+    if (word.length <= 1) return word;
+    let pieces = word.slice();
+    while (pieces.length > 1) {
+      let bestRank = Infinity, bestIdx = -1;
+      for (let i = 0; i < pieces.length - 1; i++) {
+        const rank = mergeRank[pieces[i] + " " + pieces[i + 1]];
+        if (rank !== undefined && rank < bestRank) { bestRank = rank; bestIdx = i; }
+      }
+      if (bestIdx === -1) break;
+      const merged = pieces[bestIdx] + pieces[bestIdx + 1];
+      pieces = [...pieces.slice(0, bestIdx), merged, ...pieces.slice(bestIdx + 2)];
+    }
+    return pieces;
+  }
+
+  const PAT = /'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+/gu;
+
+  function encode(text) {
+    const specialPattern = Object.keys(added)
+      .map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+    const specialRe = new RegExp(`(${specialPattern})`);
+    const segments = specialPattern ? text.split(specialRe) : [text];
+
+    const ids = [];
+    for (const seg of segments) {
+      if (seg === "" || seg === undefined) continue;
+      if (added[seg] !== undefined) { ids.push(added[seg]); continue; }
+      const words = seg.match(PAT) || [seg];
+      for (const word of words) {
+        const bytes = new TextEncoder().encode(word);
+        const tokens = bpe([...bytesToTokenStr(bytes)]);
+        for (const tok of tokens) { const id = vocab[tok]; if (id !== undefined) ids.push(id); }
+      }
+    }
+    return ids;
+  }
+
+  function decode(ids) {
+    const parts = [];
+    for (const id of ids) {
+      const tok = id2token[id];
+      if (!tok || added[tok] !== undefined) continue;
+      parts.push(tok);
+    }
+    return new TextDecoder("utf-8", { fatal: false }).decode(tokenStrToBytes(parts.join("")));
+  }
+
+  return { encode, decode };
+}
+
+// ── Chat bubble helpers ─────────────────────────────────────────────
+function appendMsg(chatEl, role, text, who) {
+  const div = document.createElement("div");
+  div.className = `msg ${role}`;
+  const emoji = document.createElement("span");
+  emoji.className = "emoji";
+  emoji.textContent = role === "user" ? "\u{1F9D1}" : (who || "\u{1F420}");
+  const body = document.createElement("div");
+  body.className = "body";
+  const label = document.createElement("div");
+  label.className = "label";
+  label.textContent = role === "user" ? "you" : "guppy";
+  body.appendChild(label);
+  body.appendChild(document.createTextNode(text));
+  div.appendChild(emoji);
+  div.appendChild(body);
+  chatEl.appendChild(div);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  return div;
+}
+
+function appendTyping(chatEl) {
+  const div = document.createElement("div");
+  div.className = "typing";
+  div.textContent = "\u{1F420} 생각하는 중...";
+  chatEl.appendChild(div);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  return div;
+}
+
+// Export instructions shown when a model file is missing
+function degradeHTML(cfg) {
+  return `
+    <img src="guppy.png" alt="Guppy" />
+    <div><strong>${cfg.label} 모델이 아직 없어요</strong></div>
+    <div>학습한 체크포인트를 브라우저용으로 변환한 뒤 <code>docs/</code>에 넣으면 자동으로 켜집니다.</div>
+    <div class="cmd"><span class="c"># torch가 설치된 (학습한) 서버에서:</span>
+python tools/export_onnx.py \\
+  --checkpoint checkpoints/best_model.pt \\
+  --tokenizer  data/tokenizer.json \\
+  --output     docs/${cfg.model}
+<span class="c"># 생성된 ${cfg.model} + ${cfg.tokenizer} 를 docs/ 로 복사</span></div>
+    <div style="font-size:12px">필요한 파일: <strong>${cfg.model}</strong>, <strong>${cfg.tokenizer}</strong></div>`;
+}
+
+// ── Build a single-model chat panel (lazy: load on first activation) ─
+function buildChatPanel(panelEl) {
+  const key = panelEl.dataset.model;
+  const cfg = MODELS[key];
+  const engine = engines[key];
+
+  // Loading state
+  const loading = document.createElement("div");
+  loading.className = "state";
+  loading.innerHTML = `<img src="guppy.png" alt="Guppy"/><div class="spinner"></div><div>${cfg.label} 모델 불러오는 중...</div>`;
+  panelEl.appendChild(loading);
+
+  // Samples (shown after load, before first message)
+  const samples = document.createElement("div");
+  samples.className = "samples hidden";
+  samples.innerHTML = `<img src="guppy.png" alt="Guppy"/>
+    <div class="title">${cfg.emoji} ${cfg.label} 챗봇</div>
+    <div class="subtitle">${cfg.subtitle}</div>`;
+  const pills = document.createElement("div");
+  pills.className = "pills";
+  for (const s of cfg.samples) {
+    const b = document.createElement("button");
+    b.className = "pill"; b.textContent = s;
+    b.addEventListener("click", () => { input.value = s; doSend(); });
+    pills.appendChild(b);
+  }
+  samples.appendChild(pills);
+  panelEl.appendChild(samples);
+
+  // Chat area
+  const chat = document.createElement("div");
+  chat.className = "chat hidden";
+  panelEl.appendChild(chat);
+
+  // Input row
+  const inputRow = document.createElement("div");
+  inputRow.className = "input-row hidden";
+  const input = document.createElement("input");
+  input.type = "text"; input.placeholder = cfg.placeholder; input.autocomplete = "off";
+  const sendBtn = document.createElement("button");
+  sendBtn.className = "send"; sendBtn.textContent = "전송";
+  inputRow.appendChild(input); inputRow.appendChild(sendBtn);
+  panelEl.appendChild(inputRow);
+
+  let chatStarted = false, busy = false;
+
+  async function doSend() {
+    const text = input.value.trim();
+    if (!text || busy) return;
+    if (!chatStarted) { chatStarted = true; samples.classList.add("hidden"); chat.classList.remove("hidden"); }
+    input.value = ""; busy = true; input.disabled = true; sendBtn.disabled = true;
+    appendMsg(chat, "user", text);
+    const typing = appendTyping(chat);
+    try {
+      const reply = await engine.reply(text);
+      typing.remove();
+      appendMsg(chat, "fish", reply, cfg.emoji);
+    } catch (e) {
+      typing.remove();
+      appendMsg(chat, "fish", "(생성 오류) " + e.message, cfg.emoji);
+    }
+    busy = false; input.disabled = false; sendBtn.disabled = false; input.focus();
+  }
+
+  sendBtn.addEventListener("click", doSend);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doSend(); } });
+
+  // Lazy load on first activation
+  let started = false;
+  panelEl._activate = async () => {
+    input.focus?.();
+    if (started) return;
+    started = true;
+    try {
+      await engine.load();
+      loading.classList.add("hidden");
+      samples.classList.remove("hidden");
+      inputRow.classList.remove("hidden");
+    } catch (e) {
+      loading.className = "state";
+      loading.innerHTML = degradeHTML(cfg);
+      console.warn(`[${key}] load failed:`, e.message);
+    }
+  };
+}
+
+buildChatPanel(document.getElementById("panel-dense"));
+buildChatPanel(document.getElementById("panel-moe"));
+
+// ── Compare panel ───────────────────────────────────────────────────
+(function setupCompare() {
+  const input = document.getElementById("cmp-input");
+  const sendBtn = document.getElementById("cmp-send");
+  const chatDense = document.getElementById("cmp-chat-dense");
+  const chatMoe = document.getElementById("cmp-chat-moe");
+  let started = false, busy = false;
+  const ok = { dense: false, moe: false };
+
+  async function ensureLoaded() {
+    await Promise.all(["dense", "moe"].map(async (k) => {
+      const chat = k === "dense" ? chatDense : chatMoe;
+      try { await engines[k].load(); ok[k] = true; }
+      catch (e) {
+        ok[k] = false;
+        const note = document.createElement("div");
+        note.className = "typing";
+        note.textContent = `${MODELS[k].label} 모델 없음 — 아키텍처/해당 탭의 안내대로 export 후 사용`;
+        chat.appendChild(note);
+      }
+    }));
+  }
+
+  async function runOne(k, text) {
+    const chat = k === "dense" ? chatDense : chatMoe;
+    if (!ok[k]) return;
+    appendMsg(chat, "user", text);
+    const typing = appendTyping(chat);
+    try { const reply = await engines[k].reply(text); typing.remove(); appendMsg(chat, "fish", reply, MODELS[k].emoji); }
+    catch (e) { typing.remove(); appendMsg(chat, "fish", "(오류) " + e.message, MODELS[k].emoji); }
+  }
+
+  async function doSend() {
+    const text = input.value.trim();
+    if (!text || busy) return;
+    input.value = ""; busy = true; input.disabled = true; sendBtn.disabled = true;
+    await Promise.all([runOne("dense", text), runOne("moe", text)]);
+    busy = false; input.disabled = false; sendBtn.disabled = false; input.focus();
+  }
+
+  sendBtn.addEventListener("click", doSend);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doSend(); } });
+
+  document.getElementById("panel-compare")._activate = async () => {
+    if (started) return; started = true;
+    await ensureLoaded();
+  };
+})();
+
+// ── Tab controller ──────────────────────────────────────────────────
+const tabs = document.querySelectorAll(".tab");
+const panels = {
+  dense: document.getElementById("panel-dense"),
+  moe: document.getElementById("panel-moe"),
+  compare: document.getElementById("panel-compare"),
+  arch: document.getElementById("panel-arch"),
+};
+tabs.forEach(tab => tab.addEventListener("click", () => {
+  const name = tab.dataset.tab;
+  tabs.forEach(t => t.classList.toggle("active", t === tab));
+  for (const [k, p] of Object.entries(panels)) p.classList.toggle("active", k === name);
+  panels[name]._activate?.();
+}));
+
+// Activate the default (dense) panel on load
+panels.dense._activate?.();
+
+// ── Theme toggle (shared, persisted) ────────────────────────────────
+const themeBtn = document.getElementById("theme-toggle");
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  themeBtn.textContent = t === "dark" ? "☀" : "☾";
+}
+themeBtn.addEventListener("click", () => {
+  const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  applyTheme(next); localStorage.setItem("theme", next);
+});
+const savedTheme = localStorage.getItem("theme");
+if (savedTheme) applyTheme(savedTheme);
+</script>
+</body>
+</html>
