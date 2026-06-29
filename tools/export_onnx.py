@@ -44,6 +44,30 @@ def _derive_tokenizer_name(output_path):
     return f"tokenizer{suffix}.json"
 
 
+def _collapse_external_data(onnx_path):
+    """Fold any external-data sidecar back into a single self-contained .onnx file.
+
+    torch's ONNX exporter (the TorchDynamo path) can spill weights into a sidecar
+    `<model>.onnx.data` next to the graph, leaving the .onnx as a tiny file that only
+    *references* the weights by a relative path. That breaks everything downstream:
+    os.rename() below renames the .onnx but orphans the sidecar, quant_pre_process copies
+    the model into a temp dir where the relative .data path no longer resolves (crashing
+    with "... should be stored in /tmp/pre.quant.XXXX/model_moe.onnx.data, but it is not
+    regular file"), and onnxruntime-web in the browser fetches only the .onnx.
+
+    onnx.load() pulls the sidecar into memory and clears the external markers; re-saving
+    with save_as_external_data=False writes one self-contained file. No-op when the export
+    was already inline (no sidecar) — and onnx is only needed/imported in that case.
+    """
+    sidecar = onnx_path + ".data"
+    if not os.path.exists(sidecar):
+        return
+    import onnx
+    model = onnx.load(onnx_path)  # resolves sidecar relative to onnx_path's dir, inlines tensors
+    onnx.save_model(model, onnx_path, save_as_external_data=False)
+    os.remove(sidecar)
+
+
 def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, push=False,
                 tokenizer_out=None):
     import shutil
@@ -115,6 +139,11 @@ def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, pus
         },
         opset_version=17,
     )
+
+    # The exporter may have written weights to a sidecar <output>.data; collapse it back
+    # into a single self-contained file before the rename/quantize steps (and before the
+    # browser ever sees it). See _collapse_external_data for the failure modes this avoids.
+    _collapse_external_data(output_path)
 
     size_mb = os.path.getsize(output_path) / 1e6
     print(f"Exported {output_path} ({size_mb:.1f} MB, float32)")
